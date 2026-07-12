@@ -3,6 +3,8 @@ build/
 run/
 .bootstrap-cache/
 results.csv
+results-*.csv
+results-*.txt
 *.log
 .idea/
 .vscode/
@@ -15,3 +17,5 @@ release/*.zip
 release/**/*.jar
 release/**/.runtime/
 release/**/results.csv
+release/**/results-*.csv
+release/**/results-*.txt

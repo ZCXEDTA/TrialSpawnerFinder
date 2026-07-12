@@ -8,6 +8,8 @@ set "JAVA_PATH_FILE=%RUNTIME%\java-path.txt"
 set "SERVER=%RUNTIME%\server"
 set "WORLD=%SERVER%\trial-finder-world"
 
+for /f %%I in ('powershell.exe -NoProfile -Command "Get-Date -Format yyyyMMdd-HHmmss-fff"') do set "RESULT_FILE=results-%%I.csv"
+
 if not exist "%JAVA_PATH_FILE%" goto not_installed
 set /p "JAVA="<"%JAVA_PATH_FILE%"
 if not exist "%JAVA%" goto not_installed
@@ -22,8 +24,6 @@ for /f "usebackq tokens=1,* delims==" %%A in ("finder.properties") do (
 if not defined SEED goto missing_seed
 
 if exist "%WORLD%" rmdir /s /q "%WORLD%"
-if exist "%SERVER%\results.csv" del /q "%SERVER%\results.csv"
-if exist "%RUNTIME%\results.csv" del /q "%RUNTIME%\results.csv"
 if exist "%SERVER%\search.failed" del /q "%SERVER%\search.failed"
 copy /y "finder.properties" "%SERVER%\finder.properties" >nul
 copy /y "trial-spawner-finder.jar" "%SERVER%\mods\trial-spawner-finder.jar" >nul
@@ -42,11 +42,10 @@ copy /y "trial-spawner-finder.jar" "%SERVER%\mods\trial-spawner-finder.jar" >nul
 
 echo Starting TrialSpawnerFinder. Seed: !SEED!
 pushd "%SERVER%"
-"%JAVA%" -Xms512M -Xmx4G -Dfile.encoding=UTF-8 -jar fabric-server-launch.jar nogui
+"%JAVA%" -Xms512M -Xmx4G -Dfile.encoding=UTF-8 "-Dtrialfinder.output=..\..\!RESULT_FILE!" -jar fabric-server-launch.jar nogui
 set "EXIT_CODE=!ERRORLEVEL!"
 popd
 
-if exist "%RUNTIME%\results.csv" copy /y "%RUNTIME%\results.csv" "results.csv" >nul
 if exist "%SERVER%\search.failed" (
     echo.
     echo Search failed. See: %SERVER%\search.failed
@@ -58,7 +57,8 @@ if not "!EXIT_CODE!"=="0" (
     echo Server log: %SERVER%\logs\latest.log
 ) else (
     echo.
-    echo Search completed. Results: results.csv
+    echo Search completed. Results: !RESULT_FILE!
+    echo Aligned text: !RESULT_FILE:.csv=.txt!
 )
 echo.
 pause

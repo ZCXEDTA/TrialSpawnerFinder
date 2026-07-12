@@ -30,7 +30,9 @@ class ResultWriterTest {
 
         List<String> lines = Files.readAllLines(output);
         assertEquals(101, lines.size());
+        assertEquals("\uFEFF排名;中心X;中心Z;密室数量;试炼刷怪笼数量;密室位置", lines.get(0));
         assertTrue(lines.get(1).startsWith("1;104;-104;2;104;"));
+        assertTrue(Files.exists(ResultWriter.textPath(output)));
     }
 
     @Test
