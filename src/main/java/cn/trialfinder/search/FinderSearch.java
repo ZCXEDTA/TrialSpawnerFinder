@@ -67,28 +67,49 @@ public final class FinderSearch {
         AtomicInteger nextGenerationPercent = new AtomicInteger(1);
         long generationStartedNanos = System.nanoTime();
         try (ExecutorService executor = Executors.newFixedThreadPool(threadCount)) {
-            List<Future<?>> tasks = new ArrayList<>(requiredStructures.size());
+            List<GenerationTask> tasks = new ArrayList<>(requiredStructures.size());
             for (BlockPoint point : requiredStructures) {
-                tasks.add(executor.submit(() -> {
+                Future<?> future = executor.submit(() -> {
                     TrialChamberGenerator generator = new TrialChamberGenerator(world);
                     cache.put(point, generator.generate(point));
                     printGenerationProgress(
                             generatedCount.incrementAndGet(), requiredStructures.size(),
                             generationStartedNanos, nextGenerationPercent);
-                }));
+                });
+                tasks.add(new GenerationTask(point, future));
             }
             executor.shutdown();
             if (!executor.awaitTermination(1, TimeUnit.HOURS)) {
                 throw new IllegalStateException("试炼密室并行生成超时");
             }
-            for (Future<?> task : tasks) {
-                task.get();
+            List<GenerationTask> failed = new ArrayList<>();
+            for (GenerationTask task : tasks) {
+                try {
+                    task.future().get();
+                } catch (ExecutionException e) {
+                    failed.add(task);
+                }
+            }
+            if (!failed.isEmpty()) {
+                System.out.println("检测到 %d 座密室发生并发生成异常，正在单线程重试...".formatted(
+                        failed.size()));
+                TrialChamberGenerator generator = new TrialChamberGenerator(world);
+                for (GenerationTask task : failed) {
+                    try {
+                        cache.put(task.point(), generator.generate(task.point()));
+                        printGenerationProgress(
+                                generatedCount.incrementAndGet(), requiredStructures.size(),
+                                generationStartedNanos, nextGenerationPercent);
+                    } catch (RuntimeException e) {
+                        throw new IllegalStateException(
+                                "密室 %d,%d 串行重试仍然失败".formatted(
+                                        task.point().x(), task.point().z()), e);
+                    }
+                }
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("试炼密室生成被中断", e);
-        } catch (ExecutionException e) {
-            throw new IllegalStateException("试炼密室并行生成失败", e.getCause());
         }
 
         long scoringStartedNanos = System.nanoTime();
@@ -199,6 +220,9 @@ public final class FinderSearch {
         Duration duration = Duration.between(started, Instant.now());
         return "%02d:%02d:%02d".formatted(
                 duration.toHours(), duration.toMinutesPart(), duration.toSecondsPart());
+    }
+
+    private record GenerationTask(BlockPoint point, Future<?> future) {
     }
 
 }

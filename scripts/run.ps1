@@ -29,6 +29,11 @@ try {
     Write-Host "Starting TrialSpawnerFinder with $env:JAVA_HOME"
     & (Join-Path $project 'gradlew.bat') runServer --console=plain
     $exitCode = $LASTEXITCODE
+    $failureMarker = Join-Path $project 'run\search.failed'
+    if (Test-Path -LiteralPath $failureMarker) {
+        $detail = Get-Content -LiteralPath $failureMarker -Raw -Encoding UTF8
+        throw "TrialSpawnerFinder search failed: $detail"
+    }
     if ($exitCode -ne 0) {
         throw "TrialSpawnerFinder exited with code $exitCode."
     }

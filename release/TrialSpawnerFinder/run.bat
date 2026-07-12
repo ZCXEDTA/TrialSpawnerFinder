@@ -24,6 +24,7 @@ if not defined SEED goto missing_seed
 if exist "%WORLD%" rmdir /s /q "%WORLD%"
 if exist "%SERVER%\results.csv" del /q "%SERVER%\results.csv"
 if exist "%RUNTIME%\results.csv" del /q "%RUNTIME%\results.csv"
+if exist "%SERVER%\search.failed" del /q "%SERVER%\search.failed"
 copy /y "finder.properties" "%SERVER%\finder.properties" >nul
 copy /y "trial-spawner-finder.jar" "%SERVER%\mods\trial-spawner-finder.jar" >nul
 
@@ -46,6 +47,11 @@ set "EXIT_CODE=!ERRORLEVEL!"
 popd
 
 if exist "%RUNTIME%\results.csv" copy /y "%RUNTIME%\results.csv" "results.csv" >nul
+if exist "%SERVER%\search.failed" (
+    echo.
+    echo Search failed. See: %SERVER%\search.failed
+    set "EXIT_CODE=1"
+)
 if not "!EXIT_CODE!"=="0" (
     echo.
     echo Search failed. Exit code: !EXIT_CODE!

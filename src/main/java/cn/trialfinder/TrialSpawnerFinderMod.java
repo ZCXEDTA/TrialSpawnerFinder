@@ -7,6 +7,8 @@ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.minecraft.server.MinecraftServer;
 
 import java.nio.file.Path;
+import java.nio.file.Files;
+import java.nio.charset.StandardCharsets;
 
 public final class TrialSpawnerFinderMod implements DedicatedServerModInitializer {
     @Override
@@ -17,6 +19,7 @@ public final class TrialSpawnerFinderMod implements DedicatedServerModInitialize
     private void runSearch(MinecraftServer server) {
         Path configPath = Path.of("finder.properties");
         Path outputPath = Path.of("..").resolve("results.csv").normalize();
+        Path failurePath = Path.of("search.failed");
         FinderSearch[] active = new FinderSearch[1];
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             if (active[0] != null) {
@@ -29,6 +32,7 @@ public final class TrialSpawnerFinderMod implements DedicatedServerModInitialize
         }, "trial-finder-save"));
 
         try {
+            Files.deleteIfExists(failurePath);
             FinderConfig config = FinderConfig.load(configPath);
             if (server.getOverworld().getSeed() != config.seed()) {
                 throw new IllegalStateException("服务端世界种子与 finder.properties 不一致");
@@ -40,6 +44,11 @@ public final class TrialSpawnerFinderMod implements DedicatedServerModInitialize
         } catch (Exception e) {
             System.err.println("TrialSpawnerFinder 搜索失败：" + e.getMessage());
             e.printStackTrace(System.err);
+            try {
+                Files.writeString(failurePath, e.toString(), StandardCharsets.UTF_8);
+            } catch (Exception markerError) {
+                System.err.println("写入失败标记失败：" + markerError.getMessage());
+            }
         } finally {
             server.stop(false);
         }
