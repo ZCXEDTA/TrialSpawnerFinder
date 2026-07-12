@@ -46,8 +46,8 @@ public final class FinderSearch {
                     config.searchRadiusBlocks(), config.searchMinX(), config.searchMaxX(),
                     config.searchMinZ(), config.searchMaxZ()));
         }
-        System.out.printf("快速扫描线程：%d，分片边长：%,d 方块%n",
-                config.scanThreads(), config.scanShardSizeBlocks());
+        System.out.println("快速扫描线程：%d，分片边长：%,d 方块".formatted(
+                config.scanThreads(), config.scanShardSizeBlocks()));
         ShardedClusterScanner.ScanResult scan = ShardedClusterScanner.scan(config);
         System.out.println("找到 %,d 个随机分布候选。".formatted(scan.candidateCount()));
 
