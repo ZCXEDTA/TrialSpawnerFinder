@@ -24,6 +24,12 @@ if not exist "%SERVER_DIR%\mods" mkdir "%SERVER_DIR%\mods"
 set "JAVA_EXE="
 set "FALLBACK_JAVA_EXE="
 set "FALLBACK_JAVA_MAJOR="
+for /f "delims=" %%J in ('dir /b /s /a-d "%~dp0java.exe" 2^>nul ^| findstr.exe /i /v /c:"\.runtime\"') do if not defined JAVA_EXE call :check_graal "%%J"
+if defined JAVA_EXE (
+    echo Using bundled GraalVM 25: !JAVA_EXE!
+    >"%JAVA_PATH_FILE%" echo !JAVA_EXE!
+    goto java_ready
+)
 if defined JAVA_HOME if exist "%JAVA_HOME%\bin\java.exe" call :check_graal "%JAVA_HOME%\bin\java.exe"
 if not defined JAVA_EXE (
     for /f "delims=" %%J in ('where.exe java.exe 2^>nul') do if not defined JAVA_EXE call :check_graal "%%J"

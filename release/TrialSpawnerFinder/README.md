@@ -6,7 +6,7 @@
 
 1. 保持发布包中的 5 个文件位于同一目录。
 2. 双击 `setup.bat`。
-3. 安装脚本会先从 `JAVA_HOME`、系统 `PATH` 和本地运行时查找 GraalVM 25。未检测到时会询问是否已有未配置环境变量的 JDK，可填写 JDK 根目录、`bin` 目录或完整的 `bin\java.exe` 路径。手动路径也未提供时，优先从清华 TUNA 下载约 346 MB 的 GraalVM Community 25，镜像失败时切换 Oracle GraalVM 官方源。只有两个下载源都失败时，才回退到机器已有的普通 Java 25 或 Java 21。
+3. 安装脚本会先递归查找发布目录及其子目录中随包附带的 GraalVM 25，不限制 JDK 文件夹名称；因此可以把完整 GraalVM 文件夹和这 5 个文件一起分发。随后才检查 `JAVA_HOME`、系统 `PATH` 和本地运行时。仍未检测到时会询问是否已有未配置环境变量的 JDK，可填写 JDK 根目录、`bin` 目录或完整的 `bin\java.exe` 路径。手动路径也未提供时，优先从清华 TUNA 下载约 346 MB 的 GraalVM Community 25，镜像失败时切换 Oracle GraalVM 官方源。只有两个下载源都失败时，才回退到机器已有的普通 Java 25 或 Java 21。
 4. Fabric API 优先使用 Modrinth CDN，失败时自动切换 Fabric 官方源。
 5. 首次安装和首次运行需要联网，之后可以离线搜索。
 
