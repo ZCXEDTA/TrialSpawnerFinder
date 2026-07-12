@@ -1,4 +1,4 @@
-package cn.trialfinder.model;
+package cn.minecraftfinder.core;
 
 public record BlockPoint(int x, int z) implements Comparable<BlockPoint> {
     public long distanceSquared(BlockPoint other) {

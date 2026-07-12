@@ -1,7 +1,7 @@
 package cn.trialfinder.search;
 
-import cn.trialfinder.config.AreaShape;
-import cn.trialfinder.model.BlockPoint;
+import cn.minecraftfinder.core.AreaShape;
+import cn.minecraftfinder.core.BlockPoint;
 import cn.trialfinder.model.SpawnerPoint;
 
 import java.util.Collection;

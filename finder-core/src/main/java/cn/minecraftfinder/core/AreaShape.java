@@ -1,4 +1,4 @@
-package cn.trialfinder.config;
+package cn.minecraftfinder.core;
 
 import java.util.Locale;
 

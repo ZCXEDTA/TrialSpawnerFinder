@@ -1,4 +1,4 @@
-package cn.trialfinder.config;
+package cn.minecraftfinder.core;
 
 import org.junit.jupiter.api.Test;
 
@@ -8,7 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class AreaShapeTest {
     @Test
-    void squareIncludesTheFiveOrgCornerResultsExcludedByCircle() {
+    void squareIncludesPointsOutsideCircle() {
         long centerX = 81_579;
         long centerZ = 48_882;
         long radius = 128;
@@ -20,10 +20,12 @@ class AreaShapeTest {
                 new long[]{81_677, 48_968});
 
         assertEquals(5, squareOnly.stream()
-                .filter(point -> AreaShape.SQUARE.contains(centerX, centerZ, point[0], point[1], radius))
+                .filter(point -> AreaShape.SQUARE.contains(
+                        centerX, centerZ, point[0], point[1], radius))
                 .count());
         assertEquals(0, squareOnly.stream()
-                .filter(point -> AreaShape.CIRCLE.contains(centerX, centerZ, point[0], point[1], radius))
+                .filter(point -> AreaShape.CIRCLE.contains(
+                        centerX, centerZ, point[0], point[1], radius))
                 .count());
     }
 }

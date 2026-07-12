@@ -1,6 +1,6 @@
 package cn.trialfinder.io;
 
-import cn.trialfinder.model.BlockPoint;
+import cn.minecraftfinder.core.BlockPoint;
 import cn.trialfinder.model.SearchResult;
 
 import java.io.BufferedWriter;

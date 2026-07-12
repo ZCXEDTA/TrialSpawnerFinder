@@ -1,5 +1,7 @@
 package cn.trialfinder.model;
 
+import cn.minecraftfinder.core.BlockPoint;
+
 import java.util.List;
 
 public record SearchResult(

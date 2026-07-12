@@ -1,7 +1,7 @@
 package cn.trialfinder.search;
 
-import cn.trialfinder.model.BlockPoint;
-import cn.trialfinder.model.CircleCenter;
+import cn.minecraftfinder.core.BlockPoint;
+import cn.minecraftfinder.core.CircleCenter;
 
 import java.util.ArrayList;
 import java.util.Collection;

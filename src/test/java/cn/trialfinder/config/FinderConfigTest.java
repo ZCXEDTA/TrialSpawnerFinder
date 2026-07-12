@@ -1,5 +1,7 @@
 package cn.trialfinder.config;
 
+import cn.minecraftfinder.core.AreaShape;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 

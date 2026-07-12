@@ -1,8 +1,8 @@
 package cn.trialfinder.search;
 
-import cn.trialfinder.config.AreaShape;
+import cn.minecraftfinder.core.AreaShape;
 import cn.trialfinder.config.FinderConfig;
-import cn.trialfinder.model.BlockPoint;
+import cn.minecraftfinder.core.BlockPoint;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

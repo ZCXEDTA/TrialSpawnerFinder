@@ -1,5 +1,8 @@
 package cn.trialfinder.config;
 
+import cn.minecraftfinder.core.AreaShape;
+import cn.minecraftfinder.core.SearchBounds;
+
 import java.io.IOException;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
@@ -61,20 +64,26 @@ public record FinderConfig(
 
     public static final int WORLD_LIMIT = 30_000_000;
 
+    public SearchBounds searchBounds() {
+        return fullWorld
+                ? SearchBounds.fullWorld(WORLD_LIMIT)
+                : SearchBounds.around(searchCenterX, searchCenterZ, searchRadiusBlocks, WORLD_LIMIT);
+    }
+
     public long searchMinX() {
-        return fullWorld ? -WORLD_LIMIT : Math.max(-WORLD_LIMIT, (long) searchCenterX - searchRadiusBlocks);
+        return searchBounds().minX();
     }
 
     public long searchMaxX() {
-        return fullWorld ? WORLD_LIMIT : Math.min(WORLD_LIMIT, (long) searchCenterX + searchRadiusBlocks);
+        return searchBounds().maxX();
     }
 
     public long searchMinZ() {
-        return fullWorld ? -WORLD_LIMIT : Math.max(-WORLD_LIMIT, (long) searchCenterZ - searchRadiusBlocks);
+        return searchBounds().minZ();
     }
 
     public long searchMaxZ() {
-        return fullWorld ? WORLD_LIMIT : Math.min(WORLD_LIMIT, (long) searchCenterZ + searchRadiusBlocks);
+        return searchBounds().maxZ();
     }
 
     public boolean containsSearchPoint(long x, long z) {

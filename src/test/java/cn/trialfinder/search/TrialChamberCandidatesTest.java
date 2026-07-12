@@ -1,6 +1,6 @@
 package cn.trialfinder.search;
 
-import cn.trialfinder.model.BlockPoint;
+import cn.minecraftfinder.core.BlockPoint;
 import org.junit.jupiter.api.Test;
 
 import java.util.Random;

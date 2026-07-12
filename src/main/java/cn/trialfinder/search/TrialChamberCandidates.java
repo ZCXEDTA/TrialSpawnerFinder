@@ -1,7 +1,7 @@
 package cn.trialfinder.search;
 
 import cn.trialfinder.config.FinderConfig;
-import cn.trialfinder.model.BlockPoint;
+import cn.minecraftfinder.core.BlockPoint;
 
 import java.util.ArrayList;
 import java.util.List;

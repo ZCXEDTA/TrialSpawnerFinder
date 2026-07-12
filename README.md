@@ -24,3 +24,5 @@
 快速搜索按分片流式处理，不会将整个搜索范围的候选一次性装入内存。`scan-threads` 控制并行快速扫描线程数；`scan-shard-size-blocks` 控制每个分片的边长，默认 `262144`。4 GB 内存建议使用默认分片大小和不超过 8 个线程。
 
 启动脚本会自动写入临时服务端所需的 `eula=true`。为避免 Windows 中文用户目录引起 Java/Gradle 兼容问题，程序优先使用 `D:\edgedownload\jdk-21_windows-x64_bin\jdk-21.0.8`，并将 Gradle 缓存放在 `C:\GradleCache`；英文 JDK 不存在时才回退到 Minecraft 自带的 JDK 21。
+
+开发者可阅读 [`docs/architecture.md`](docs/architecture.md)，了解公共搜索核心与各类查找器的模块边界。

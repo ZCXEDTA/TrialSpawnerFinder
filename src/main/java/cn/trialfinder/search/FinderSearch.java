@@ -2,7 +2,7 @@ package cn.trialfinder.search;
 
 import cn.trialfinder.config.FinderConfig;
 import cn.trialfinder.io.ResultWriter;
-import cn.trialfinder.model.BlockPoint;
+import cn.minecraftfinder.core.BlockPoint;
 import cn.trialfinder.model.SearchResult;
 import cn.trialfinder.model.SpawnerPoint;
 import cn.trialfinder.world.TrialChamberGenerator;

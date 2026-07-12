@@ -1,6 +1,6 @@
 package cn.trialfinder.io;
 
-import cn.trialfinder.model.BlockPoint;
+import cn.minecraftfinder.core.BlockPoint;
 import cn.trialfinder.model.SearchResult;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

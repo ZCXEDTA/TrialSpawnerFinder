@@ -1,4 +1,4 @@
-package cn.trialfinder.model;
+package cn.minecraftfinder.core;
 
 public record CircleCenter(double x, double z) {
     public long roundedX() {

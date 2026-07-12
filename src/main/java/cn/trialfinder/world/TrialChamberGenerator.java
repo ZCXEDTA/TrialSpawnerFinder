@@ -1,6 +1,6 @@
 package cn.trialfinder.world;
 
-import cn.trialfinder.model.BlockPoint;
+import cn.minecraftfinder.core.BlockPoint;
 import cn.trialfinder.model.SpawnerPoint;
 import cn.trialfinder.mixin.ListPoolElementAccessor;
 import cn.trialfinder.mixin.SinglePoolElementAccessor;

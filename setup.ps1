@@ -22,7 +22,7 @@ Write-Host "Using Gradle cache: $env:GRADLE_USER_HOME"
 
 Push-Location $project
 try {
-    & .\gradlew.bat clean compileTestJava remapJar
+    & .\gradlew.bat clean compileTestJava :finder-core:compileTestJava remapJar
     if ($LASTEXITCODE -ne 0) { throw "Gradle build failed with exit code $LASTEXITCODE" }
 
     $junit = Join-Path $project '.bootstrap-cache\junit-platform-console-standalone-1.11.4.jar'
@@ -33,7 +33,7 @@ try {
             -OutFile $junit
     }
     & (Join-Path $env:JAVA_HOME 'bin\java.exe') -jar $junit execute `
-        --class-path 'build\classes\java\main;build\classes\java\test' `
+        --class-path 'finder-core\build\classes\java\main;finder-core\build\classes\java\test;build\classes\java\main;build\classes\java\test' `
         --scan-class-path --details=summary
     if ($LASTEXITCODE -ne 0) { throw "Tests failed with exit code $LASTEXITCODE" }
 
