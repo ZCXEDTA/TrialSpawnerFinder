@@ -8,9 +8,11 @@ set "JAVA_DIR=%RUNTIME%\java"
 set "SERVER_DIR=%RUNTIME%\server"
 set "JDK_ZIP=%RUNTIME%\jdk.zip"
 set "JAVA_PATH_FILE=%RUNTIME%\java-path.txt"
-set "JDK_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/Adoptium/21/jdk/x64/windows/OpenJDK21U-jdk_x64_windows_hotspot_21.0.11_10.zip"
-set "JDK_FALLBACK=https://download.oracle.com/java/21/latest/jdk-21_windows-x64_bin.zip"
-set "FABRIC_URL=https://meta.fabricmc.net/v2/versions/loader/1.21.1/0.16.14/1.1.1/server/jar"
+set "LOADER_VERSION_FILE=%RUNTIME%\fabric-loader-version.txt"
+set "JDK_MIRROR=https://download.oracle.com/graalvm/25/latest/graalvm-jdk-25_windows-x64_bin.zip"
+set "JDK_FALLBACK=https://github.com/graalvm/graalvm-ce-builds/releases/download/jdk-25.0.2/graalvm-community-jdk-25.0.2_windows-x64_bin.zip"
+set "LOADER_VERSION=0.19.3"
+set "FABRIC_URL=https://meta.fabricmc.net/v2/versions/loader/1.21.1/%LOADER_VERSION%/1.1.1/server/jar"
 set "API_MIRROR=https://cdn.modrinth.com/data/P7dR8mSH/versions/9xIK4e8l/fabric-api-0.116.6+1.21.1.jar"
 set "API_FALLBACK=https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.116.6+1.21.1/fabric-api-0.116.6+1.21.1.jar"
 
@@ -20,33 +22,43 @@ if not exist "%RUNTIME%" mkdir "%RUNTIME%"
 if not exist "%SERVER_DIR%\mods" mkdir "%SERVER_DIR%\mods"
 
 set "JAVA_EXE="
-if defined JAVA_HOME if exist "%JAVA_HOME%\bin\java.exe" call :check_java "%JAVA_HOME%\bin\java.exe"
+set "FALLBACK_JAVA_EXE="
+set "FALLBACK_JAVA_MAJOR="
+if defined JAVA_HOME if exist "%JAVA_HOME%\bin\java.exe" call :check_graal "%JAVA_HOME%\bin\java.exe"
 if not defined JAVA_EXE (
-    for /f "delims=" %%J in ('where.exe java.exe 2^>nul') do if not defined JAVA_EXE call :check_java "%%J"
+    for /f "delims=" %%J in ('where.exe java.exe 2^>nul') do if not defined JAVA_EXE call :check_graal "%%J"
 )
-if not defined JAVA_EXE if exist "%JAVA_DIR%\bin\java.exe" call :check_java "%JAVA_DIR%\bin\java.exe"
+if not defined JAVA_EXE if exist "%JAVA_DIR%\bin\java.exe" call :check_graal "%JAVA_DIR%\bin\java.exe"
 if defined JAVA_EXE (
-    echo Using existing Java 21: !JAVA_EXE!
+    echo Using existing Oracle GraalVM 25: !JAVA_EXE!
     >"%JAVA_PATH_FILE%" echo !JAVA_EXE!
     goto java_ready
 )
-echo [1/3] Downloading Java 21, about 196 MB...
+if defined JAVA_HOME if exist "%JAVA_HOME%\bin\java.exe" call :check_fallback "%JAVA_HOME%\bin\java.exe"
+for /f "delims=" %%J in ('where.exe java.exe 2^>nul') do if not defined FALLBACK_JAVA_EXE call :check_fallback "%%J"
+if exist "%JAVA_DIR%\bin\java.exe" if not defined FALLBACK_JAVA_EXE call :check_fallback "%JAVA_DIR%\bin\java.exe"
+echo [1/3] Downloading Oracle GraalVM 25, about 345 MB...
 call :download "%JDK_MIRROR%" "%JDK_FALLBACK%" "%JDK_ZIP%"
-if errorlevel 1 goto download_failed
+if errorlevel 1 goto use_fallback_java
 if exist "%JAVA_DIR%" rmdir /s /q "%JAVA_DIR%"
 mkdir "%JAVA_DIR%"
 tar.exe -xf "%JDK_ZIP%" -C "%JAVA_DIR%" --strip-components=1
 if errorlevel 1 goto extract_failed
 del /q "%JDK_ZIP%"
 if not exist "%JAVA_DIR%\bin\java.exe" goto extract_failed
-set "JAVA_EXE=%JAVA_DIR%\bin\java.exe"
+set "JAVA_EXE="
+call :check_graal "%JAVA_DIR%\bin\java.exe"
+if not defined JAVA_EXE goto extract_failed
 >"%JAVA_PATH_FILE%" echo !JAVA_EXE!
 
 :java_ready
 echo [2/3] Downloading Minecraft 1.21.1 Fabric server launcher...
-if not exist "%SERVER_DIR%\fabric-server-launch.jar" (
+set "INSTALLED_LOADER_VERSION="
+if exist "%LOADER_VERSION_FILE%" set /p "INSTALLED_LOADER_VERSION="<"%LOADER_VERSION_FILE%"
+if not "!INSTALLED_LOADER_VERSION!"=="%LOADER_VERSION%" (
     call :download "%FABRIC_URL%" "%FABRIC_URL%" "%SERVER_DIR%\fabric-server-launch.jar"
     if errorlevel 1 goto download_failed
+    >"%LOADER_VERSION_FILE%" echo %LOADER_VERSION%
 )
 
 echo [3/3] Installing Fabric API and TrialSpawnerFinder...
@@ -69,12 +81,41 @@ if exist "%~3" del /q "%~3"
 curl.exe -fL --retry 3 --connect-timeout 20 -o "%~3" "%~2"
 exit /b %ERRORLEVEL%
 
-:check_java
+:check_graal
 "%~1" -XshowSettings:properties -version >nul 2>"%RUNTIME%\java-version.txt"
-findstr.exe /c:"java.version = 21." "%RUNTIME%\java-version.txt" >nul
+findstr.exe /c:"java.version = 25." "%RUNTIME%\java-version.txt" >nul
+if errorlevel 1 goto check_graal_done
+findstr.exe /c:"GraalVM" "%RUNTIME%\java-version.txt" >nul
 if not errorlevel 1 set "JAVA_EXE=%~1"
+:check_graal_done
 del /q "%RUNTIME%\java-version.txt" >nul 2>&1
 exit /b 0
+
+:check_fallback
+"%~1" -XshowSettings:properties -version >nul 2>"%RUNTIME%\java-version.txt"
+findstr.exe /c:"java.version = 25." "%RUNTIME%\java-version.txt" >nul
+if not errorlevel 1 (
+    set "FALLBACK_JAVA_EXE=%~1"
+    set "FALLBACK_JAVA_MAJOR=25"
+    goto check_fallback_done
+)
+findstr.exe /c:"java.version = 21." "%RUNTIME%\java-version.txt" >nul
+if not errorlevel 1 (
+    set "FALLBACK_JAVA_EXE=%~1"
+    set "FALLBACK_JAVA_MAJOR=21"
+)
+:check_fallback_done
+del /q "%RUNTIME%\java-version.txt" >nul 2>&1
+exit /b 0
+
+:use_fallback_java
+if defined FALLBACK_JAVA_EXE (
+    echo WARNING: GraalVM download failed. Using existing Java !FALLBACK_JAVA_MAJOR!: !FALLBACK_JAVA_EXE!
+    set "JAVA_EXE=!FALLBACK_JAVA_EXE!"
+    >"%JAVA_PATH_FILE%" echo !JAVA_EXE!
+    goto java_ready
+)
+goto download_failed
 
 :missing_files
 echo ERROR: trial-spawner-finder.jar or finder.properties is missing.
@@ -85,7 +126,7 @@ echo ERROR: Download failed. Check the network and run setup.bat again.
 goto failed
 
 :extract_failed
-echo ERROR: Java 21 extraction failed. Delete .runtime and retry.
+echo ERROR: GraalVM 25 extraction failed. Delete .runtime and retry.
 
 :failed
 echo.
