@@ -1,6 +1,6 @@
 # TrialSpawnerFinder
 
-用于在 Minecraft Java 版 1.21.1 世界种子中搜索试炼密室密集区域，并统计指定范围内实际生成的试炼刷怪笼。
+用于搜索采用 Minecraft 1.21.2 现代布局的试炼密室密集区域，并统计指定范围内实际生成的试炼刷怪笼。
 
 ## 首次安装
 
@@ -10,7 +10,9 @@
 4. Fabric API 优先使用 Modrinth CDN，失败时自动切换 Fabric 官方源。
 5. 首次安装和首次运行需要联网，之后可以离线搜索。
 
-发布包固定使用 Minecraft 1.21.1 当前最新稳定 Fabric Loader `0.19.3`。旧运行环境再次执行 `setup.bat` 时会自动更新 Loader；同版本不会重复下载。
+发布包固定使用 Minecraft 1.21.2 和 Fabric Loader `0.19.3`。从旧版发布包升级时重新执行 `setup.bat`，脚本会同时校验 Minecraft、Loader 和 Fabric API，并自动替换旧运行环境。
+
+该构建用于 1.21.2 开始采用的新试炼密室布局。它与 1.21/1.21.1 旧布局的刷怪笼结果不同，不能混用。
 
 ## 开始搜索
 

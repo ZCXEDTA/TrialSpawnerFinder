@@ -34,7 +34,7 @@ public final class TrialChamberGenerator {
     public TrialChamberGenerator(ServerWorld world) {
         this.world = world;
         this.trialChambers = world.getRegistryManager()
-                .get(RegistryKeys.STRUCTURE)
+                .getOrThrow(RegistryKeys.STRUCTURE)
                 .get(Identifier.of("minecraft", "trial_chambers"));
         if (trialChambers == null) {
             throw new IllegalStateException("Minecraft 注册表中找不到 trial_chambers");

@@ -56,7 +56,7 @@ public final class FinderSearch {
         List<CircleClusters.StructureCluster> clusters = scan.clusters();
         System.out.println("找到 %,d 个需要精细验证的候选聚类。".formatted(clusters.size()));
 
-        System.out.println("[3/3] 使用 Minecraft 1.21.1 生成结构并统计试炼刷怪笼...");
+        System.out.println("[3/3] 使用 Minecraft 1.21.2 现代布局生成结构并统计试炼刷怪笼...");
         Map<BlockPoint, TrialChamberGenerator.GeneratedChamber> cache = new ConcurrentHashMap<>();
         Map<List<BlockPoint>, SearchResult> unique = new LinkedHashMap<>();
         Set<BlockPoint> requiredStructures = new TreeSet<>();

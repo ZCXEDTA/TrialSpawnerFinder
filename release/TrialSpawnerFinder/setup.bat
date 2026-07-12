@@ -8,13 +8,14 @@ set "JAVA_DIR=%RUNTIME%\java"
 set "SERVER_DIR=%RUNTIME%\server"
 set "JDK_ZIP=%RUNTIME%\jdk.zip"
 set "JAVA_PATH_FILE=%RUNTIME%\java-path.txt"
-set "LOADER_VERSION_FILE=%RUNTIME%\fabric-loader-version.txt"
+set "RUNTIME_VERSION_FILE=%RUNTIME%\minecraft-runtime-version.txt"
 set "JDK_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/github-release/graalvm/graalvm-ce-builds/GraalVM%%20Community%%2025%%20Innovation%%201%%20%%28graal%%2025.1.3%%2C%%20jdk%%2025.0.3%%29/graalvm-community-jdk-25i1-25.0.3_windows-x64_bin.zip"
 set "JDK_FALLBACK=https://download.oracle.com/graalvm/25/latest/graalvm-jdk-25_windows-x64_bin.zip"
 set "LOADER_VERSION=0.19.3"
-set "FABRIC_URL=https://meta.fabricmc.net/v2/versions/loader/1.21.1/%LOADER_VERSION%/1.1.1/server/jar"
-set "API_MIRROR=https://cdn.modrinth.com/data/P7dR8mSH/versions/9xIK4e8l/fabric-api-0.116.6+1.21.1.jar"
-set "API_FALLBACK=https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.116.6+1.21.1/fabric-api-0.116.6+1.21.1.jar"
+set "RUNTIME_VERSION=1.21.2-loader-%LOADER_VERSION%-api-0.106.1"
+set "FABRIC_URL=https://meta.fabricmc.net/v2/versions/loader/1.21.2/%LOADER_VERSION%/1.1.1/server/jar"
+set "API_MIRROR=https://cdn.modrinth.com/data/P7dR8mSH/versions/UEjZZNue/fabric-api-0.106.1+1.21.2.jar"
+set "API_FALLBACK=https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.106.1+1.21.2/fabric-api-0.106.1+1.21.2.jar"
 
 if not exist "trial-spawner-finder.jar" goto missing_files
 if not exist "finder.properties" goto missing_files
@@ -65,19 +66,21 @@ if not defined JAVA_EXE goto extract_failed
 >"%JAVA_PATH_FILE%" echo !JAVA_EXE!
 
 :java_ready
-echo [2/3] Downloading Minecraft 1.21.1 Fabric server launcher...
-set "INSTALLED_LOADER_VERSION="
-if exist "%LOADER_VERSION_FILE%" set /p "INSTALLED_LOADER_VERSION="<"%LOADER_VERSION_FILE%"
-if not "!INSTALLED_LOADER_VERSION!"=="%LOADER_VERSION%" (
+echo [2/3] Installing Minecraft 1.21.2 modern-layout runtime...
+set "INSTALLED_RUNTIME_VERSION="
+if exist "%RUNTIME_VERSION_FILE%" set /p "INSTALLED_RUNTIME_VERSION="<"%RUNTIME_VERSION_FILE%"
+set "RUNTIME_READY="
+if "!INSTALLED_RUNTIME_VERSION!"=="%RUNTIME_VERSION%" if exist "%SERVER_DIR%\fabric-server-launch.jar" if exist "%SERVER_DIR%\mods\fabric-api.jar" set "RUNTIME_READY=1"
+if not defined RUNTIME_READY (
     call :download "%FABRIC_URL%" "%FABRIC_URL%" "%SERVER_DIR%\fabric-server-launch.jar"
     if errorlevel 1 goto download_failed
-    >"%LOADER_VERSION_FILE%" echo %LOADER_VERSION%
 )
 
 echo [3/3] Installing Fabric API and TrialSpawnerFinder...
-if not exist "%SERVER_DIR%\mods\fabric-api.jar" (
+if not defined RUNTIME_READY (
     call :download "%API_MIRROR%" "%API_FALLBACK%" "%SERVER_DIR%\mods\fabric-api.jar"
     if errorlevel 1 goto download_failed
+    >"%RUNTIME_VERSION_FILE%" echo %RUNTIME_VERSION%
 )
 copy /y "trial-spawner-finder.jar" "%SERVER_DIR%\mods\trial-spawner-finder.jar" >nul
 
