@@ -39,6 +39,8 @@ public final class FinderSearch {
     public void run(ServerWorld world) throws IOException {
         Instant started = Instant.now();
         System.out.println("[1/3] 多线程分片枚举并筛选聚类...");
+        System.out.println("JVM 可用逻辑处理器：%d；快速扫描实际线程：%d".formatted(
+                Runtime.getRuntime().availableProcessors(), config.scanThreads()));
         if (config.fullWorld()) {
             System.out.println("搜索范围：完整世界正方形（-30000000 到 30000000）");
         } else {
@@ -46,8 +48,7 @@ public final class FinderSearch {
                     config.searchRadiusBlocks(), config.searchMinX(), config.searchMaxX(),
                     config.searchMinZ(), config.searchMaxZ()));
         }
-        System.out.println("快速扫描线程：%d，分片边长：%,d 方块".formatted(
-                config.scanThreads(), config.scanShardSizeBlocks()));
+        System.out.println("分片边长：%,d 方块".formatted(config.scanShardSizeBlocks()));
         ShardedClusterScanner.ScanResult scan = ShardedClusterScanner.scan(config);
         System.out.println("找到 %,d 个随机分布候选。".formatted(scan.candidateCount()));
 
@@ -60,8 +61,8 @@ public final class FinderSearch {
         Map<List<BlockPoint>, SearchResult> unique = new LinkedHashMap<>();
         Set<BlockPoint> requiredStructures = new TreeSet<>();
         clusters.forEach(cluster -> requiredStructures.addAll(cluster.structures()));
-        int threadCount = Math.min(8, Runtime.getRuntime().availableProcessors());
-        System.out.println("使用 %d 个线程生成 %,d 座唯一候选密室。".formatted(
+        int threadCount = fineThreadCount(Runtime.getRuntime().availableProcessors());
+        System.out.println("精细生成实际线程：%d；唯一候选密室：%,d 座。".formatted(
                 threadCount, requiredStructures.size()));
         AtomicInteger generatedCount = new AtomicInteger();
         AtomicInteger nextGenerationPercent = new AtomicInteger(1);
@@ -150,6 +151,8 @@ public final class FinderSearch {
         save();
         System.out.println("搜索完成：%d 个达标结果，耗时 %s。".formatted(
                 results.size(), elapsed(started)));
+        System.out.println("结果文件：" + output.toAbsolutePath());
+        System.out.println("对齐文本：" + ResultWriter.textPath(output).toAbsolutePath());
     }
 
     public synchronized void save() throws IOException {
@@ -209,6 +212,10 @@ public final class FinderSearch {
         return "[%s %s%s] %d%% %d/%d | %.1f %s/秒 | ETA %s".formatted(
                 phase, "#".repeat(filled), "-".repeat(10 - filled), percent,
                 completed, total, throughput, unit, formatDuration(remainingNanos));
+    }
+
+    static int fineThreadCount(int availableProcessors) {
+        return Math.max(1, availableProcessors - 2);
     }
 
     private static String formatDuration(long nanos) {

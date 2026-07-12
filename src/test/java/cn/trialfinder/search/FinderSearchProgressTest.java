@@ -10,4 +10,12 @@ class FinderSearchProgressTest {
         assertEquals("[生成 ##--------] 25% 50/200 | 5.0 座/秒 | ETA 00:00:30",
                 FinderSearch.phaseProgressLine("生成", 50, 200, "座", 10_000_000_000L));
     }
+
+    @Test
+    void fineThreadsLeaveTwoLogicalProcessorsForTheSystem() {
+        assertEquals(1, FinderSearch.fineThreadCount(1));
+        assertEquals(2, FinderSearch.fineThreadCount(4));
+        assertEquals(14, FinderSearch.fineThreadCount(16));
+        assertEquals(18, FinderSearch.fineThreadCount(20));
+    }
 }
