@@ -1,0 +1,26 @@
+# TrialSpawnerFinder
+
+用于在 Minecraft Java 版 1.21.1 世界种子中查找试炼密室密集区域，并统计指定圆形半径内实际生成的试炼刷怪笼。
+
+## 使用方法
+
+1. 编辑 `finder.properties`，填写世界种子、搜索范围和阈值。
+2. 在项目目录打开 PowerShell，运行 `powershell -ExecutionPolicy Bypass -File ./setup.ps1` 完成首次构建。
+3. 双击 `run.bat` 开始搜索。
+4. 结果按刷怪笼数量降序保存在 `results.csv`。
+
+如果启动失败，窗口会保留错误信息，并将完整启动日志写入项目根目录的 `launcher.log`。
+
+`search-radius-blocks` 是从搜索中心向外查找试炼密室的圆形范围。超出世界边界的部分会自动裁掉，其余方向仍正常搜索。设置 `full-world=true` 后会忽略搜索中心和半径，扫描 `-30000000` 到 `30000000` 的完整世界正方形。`cluster-radius-blocks` 是每个结果用于汇总密室和刷怪笼的范围。`area-shape=circle` 使用水平圆形距离；`area-shape=square` 表示中心向 X/Z 各扩展该数值，与方形方块查找命令口径一致。
+
+`min-structures` 是最低密室数量阈值。每种实际 `structure-count` 最多保留 100 条，CSV 最终将所有结果按刷怪笼数量降序混合排列，并使用连续的全局排名；数量相同时优先排列密室更多的结果。
+
+程序固定支持 Minecraft 1.21.1，使用无界面的官方服务端世界生成逻辑，不需要进入游戏或准备存档。首次构建需要联网。
+
+精细搜索会先去重候选密室，再自动使用最多 8 个线程并行生成官方 Jigsaw 布局；无需手动配置线程数。
+
+精细统计会遍历所有能够包含目标密室起点的整数中心，并使用差分扫描精确选择实际试炼刷怪笼数量最多的中心；结果不依赖快速阶段的近似圆心。
+
+快速搜索按分片流式处理，不会将整个搜索范围的候选一次性装入内存。`scan-threads` 控制并行快速扫描线程数；`scan-shard-size-blocks` 控制每个分片的边长，默认 `262144`。4 GB 内存建议使用默认分片大小和不超过 8 个线程。
+
+启动脚本会自动写入临时服务端所需的 `eula=true`。为避免 Windows 中文用户目录引起 Java/Gradle 兼容问题，程序优先使用 `D:\edgedownload\jdk-21_windows-x64_bin\jdk-21.0.8`，并将 Gradle 缓存放在 `C:\GradleCache`；英文 JDK 不存在时才回退到 Minecraft 自带的 JDK 21。

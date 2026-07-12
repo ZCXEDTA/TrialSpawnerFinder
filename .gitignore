@@ -1,0 +1,13 @@
+.gradle/
+build/
+run/
+.bootstrap-cache/
+results.csv
+*.log
+.idea/
+.vscode/
+*.iml
+hs_err_pid*
+replay_pid*
+.DS_Store
+Thumbs.db
