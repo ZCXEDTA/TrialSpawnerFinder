@@ -34,11 +34,18 @@ if defined JAVA_EXE (
     >"%JAVA_PATH_FILE%" echo !JAVA_EXE!
     goto java_ready
 )
+set "HAS_MANUAL_JAVA="
+set /p "HAS_MANUAL_JAVA=Java was not detected. Do you already have GraalVM/JDK 25 or 21? [y/N]: "
+if /i "!HAS_MANUAL_JAVA!"=="Y" call :select_manual_java
+if defined JAVA_EXE (
+    >"%JAVA_PATH_FILE%" echo !JAVA_EXE!
+    goto java_ready
+)
 if defined JAVA_HOME if exist "%JAVA_HOME%\bin\java.exe" call :check_fallback "%JAVA_HOME%\bin\java.exe"
 for /f "delims=" %%J in ('where.exe java.exe 2^>nul') do if not defined FALLBACK_JAVA_EXE call :check_fallback "%%J"
 if exist "%JAVA_DIR%\bin\java.exe" if not defined FALLBACK_JAVA_EXE call :check_fallback "%JAVA_DIR%\bin\java.exe"
 echo [1/3] Downloading GraalVM 25, about 346 MB...
-call :download "%JDK_MIRROR%" "%JDK_FALLBACK%" "%JDK_ZIP%"
+call :download_jdk "%JDK_ZIP%"
 if errorlevel 1 goto use_fallback_java
 if exist "%JAVA_DIR%" rmdir /s /q "%JAVA_DIR%"
 mkdir "%JAVA_DIR%"
@@ -80,6 +87,37 @@ echo Primary download source failed. Trying fallback...
 if exist "%~3" del /q "%~3"
 curl.exe -fL --retry 3 --connect-timeout 20 -o "%~3" "%~2"
 exit /b %ERRORLEVEL%
+
+:download_jdk
+curl.exe -fL --retry 2 --connect-timeout 20 -o "%~1" "!JDK_MIRROR!"
+if not errorlevel 1 exit /b 0
+echo Primary download source failed. Trying fallback...
+if exist "%~1" del /q "%~1"
+curl.exe -fL --retry 3 --connect-timeout 20 -o "%~1" "!JDK_FALLBACK!"
+exit /b %ERRORLEVEL%
+
+:select_manual_java
+set "MANUAL_JAVA_INPUT="
+set /p "MANUAL_JAVA_INPUT=Enter the JDK folder, bin folder, or full path to java.exe: "
+set "MANUAL_JAVA_INPUT=%MANUAL_JAVA_INPUT:"=%"
+set "MANUAL_JAVA_EXE="
+if exist "!MANUAL_JAVA_INPUT!\bin\java.exe" set "MANUAL_JAVA_EXE=!MANUAL_JAVA_INPUT!\bin\java.exe"
+if not defined MANUAL_JAVA_EXE if exist "!MANUAL_JAVA_INPUT!\java.exe" set "MANUAL_JAVA_EXE=!MANUAL_JAVA_INPUT!\java.exe"
+if not defined MANUAL_JAVA_EXE if exist "!MANUAL_JAVA_INPUT!" set "MANUAL_JAVA_EXE=!MANUAL_JAVA_INPUT!"
+if defined MANUAL_JAVA_EXE call :check_graal "!MANUAL_JAVA_EXE!"
+if defined JAVA_EXE (
+    echo Using manually selected GraalVM 25: !JAVA_EXE!
+    exit /b 0
+)
+set "FALLBACK_JAVA_EXE="
+if defined MANUAL_JAVA_EXE call :check_fallback "!MANUAL_JAVA_EXE!"
+if defined FALLBACK_JAVA_EXE (
+    set "JAVA_EXE=!FALLBACK_JAVA_EXE!"
+    echo Using manually selected Java !FALLBACK_JAVA_MAJOR!: !JAVA_EXE!
+    exit /b 0
+)
+echo The selected path is not a compatible Java 25 or 21 installation. Continuing with download.
+exit /b 0
 
 :check_graal
 "%~1" -XshowSettings:properties -version >nul 2>"%RUNTIME%\java-version.txt"
