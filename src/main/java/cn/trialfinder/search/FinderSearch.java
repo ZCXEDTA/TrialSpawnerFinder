@@ -6,7 +6,7 @@ import cn.minecraftfinder.core.BlockPoint;
 import cn.trialfinder.model.SearchResult;
 import cn.trialfinder.model.SpawnerPoint;
 import cn.trialfinder.world.TrialChamberGenerator;
-import net.minecraft.server.world.ServerWorld;
+import net.minecraft.server.level.ServerLevel;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -36,7 +36,7 @@ public final class FinderSearch {
         this.output = output;
     }
 
-    public void run(ServerWorld world) throws IOException {
+    public void run(ServerLevel world) throws IOException {
         Instant started = Instant.now();
         System.out.println("[1/3] 多线程分片枚举并筛选聚类...");
         System.out.println("JVM 可用逻辑处理器：%d；快速扫描实际线程：%d".formatted(
@@ -56,7 +56,7 @@ public final class FinderSearch {
         List<CircleClusters.StructureCluster> clusters = scan.clusters();
         System.out.println("找到 %,d 个需要精细验证的候选聚类。".formatted(clusters.size()));
 
-        System.out.println("[3/3] 使用 Minecraft 1.21.2 现代布局生成结构并统计试炼刷怪笼...");
+        System.out.println("[3/3] 使用 Minecraft 26.2 布局生成结构并统计试炼刷怪笼...");
         Map<BlockPoint, TrialChamberGenerator.GeneratedChamber> cache = new ConcurrentHashMap<>();
         Map<List<BlockPoint>, SearchResult> unique = new LinkedHashMap<>();
         Set<BlockPoint> requiredStructures = new TreeSet<>();

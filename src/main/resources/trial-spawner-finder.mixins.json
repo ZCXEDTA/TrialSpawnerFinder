@@ -1,11 +1,9 @@
 {
   "required": true,
   "package": "cn.trialfinder.mixin",
-  "compatibilityLevel": "JAVA_21",
+  "compatibilityLevel": "JAVA_25",
   "mixins": [
-    "ListPoolElementAccessor",
-    "PalettedBlockInfoListMixin",
-    "SinglePoolElementAccessor"
+    "PalettedBlockInfoListMixin"
   ],
   "injectors": {
     "defaultRequire": 1

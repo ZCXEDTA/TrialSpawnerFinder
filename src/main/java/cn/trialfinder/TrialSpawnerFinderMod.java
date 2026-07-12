@@ -40,12 +40,12 @@ public final class TrialSpawnerFinderMod implements DedicatedServerModInitialize
         try {
             Files.deleteIfExists(failurePath);
             FinderConfig config = FinderConfig.load(configPath);
-            if (server.getOverworld().getSeed() != config.seed()) {
+            if (server.overworld().getSeed() != config.seed()) {
                 throw new IllegalStateException("服务端世界种子与 finder.properties 不一致");
             }
             FinderSearch search = new FinderSearch(config, outputPath);
             active[0] = search;
-            search.run(server.getOverworld());
+            search.run(server.overworld());
             active[0] = null;
         } catch (Exception e) {
             System.err.println("TrialSpawnerFinder 搜索失败：" + e.getMessage());
@@ -56,7 +56,7 @@ public final class TrialSpawnerFinderMod implements DedicatedServerModInitialize
                 System.err.println("写入失败标记失败：" + markerError.getMessage());
             }
         } finally {
-            server.stop(false);
+            server.halt(false);
         }
     }
 

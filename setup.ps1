@@ -2,16 +2,19 @@ $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 
 $project = Split-Path -Parent $MyInvocation.MyCommand.Path
-$minecraftJdk = Join-Path $env:APPDATA '.minecraft\runtime\java-runtime-delta'
 $javaHomes = @(@(
-    'D:\edgedownload\jdk-21_windows-x64_bin\jdk-21.0.8',
+    'D:\edgedownload\graalvm-jdk-25_windows-x64_bin\graalvm-jdk-25.0.2+10.1',
+    (Join-Path $project 'java'),
     'D:\PyCharm\PyCharm 2025.2.0.1\jbr',
-    $env:JAVA_HOME,
-    $minecraftJdk
-) | Where-Object { $_ -and (Test-Path (Join-Path $_ 'bin\javac.exe')) })
+    $env:JAVA_HOME
+) | Where-Object {
+    if (-not $_) { return $false }
+    $javac = Join-Path $_ 'bin\javac.exe'
+    (Test-Path $javac) -and ((& $javac -version 2>&1) -match '^javac 25(?:\.|$)')
+})
 
 if (-not $javaHomes) {
-    throw 'JDK 21 was not found. Install Java 21 or set JAVA_HOME.'
+    throw 'JDK 25 was not found. Install Java 25 or set JAVA_HOME.'
 }
 
 $env:JAVA_HOME = $javaHomes[0]
@@ -22,7 +25,7 @@ Write-Host "Using Gradle cache: $env:GRADLE_USER_HOME"
 
 Push-Location $project
 try {
-    & .\gradlew.bat clean compileTestJava :finder-core:compileTestJava remapJar
+    & .\gradlew.bat clean compileTestJava :finder-core:compileTestJava jar
     if ($LASTEXITCODE -ne 0) { throw "Gradle build failed with exit code $LASTEXITCODE" }
 
     $junit = Join-Path $project '.bootstrap-cache\junit-platform-console-standalone-1.11.4.jar'
