@@ -6,7 +6,7 @@
 
 1. 保持发布包中的 5 个文件位于同一目录。
 2. 双击 `setup.bat`。
-3. 安装脚本会先从 `JAVA_HOME`、系统 `PATH` 和本地运行时查找 Oracle GraalVM 25。未找到时下载约 345 MB 的 Oracle GraalVM 25，官方源失败时切换 GraalVM Community 备用源。只有两个下载源都失败时，才回退到机器已有的普通 Java 25 或 Java 21。
+3. 安装脚本会先从 `JAVA_HOME`、系统 `PATH` 和本地运行时查找 GraalVM 25。未找到时优先从清华 TUNA 下载约 346 MB 的 GraalVM Community 25，镜像失败时切换 Oracle GraalVM 官方源。只有两个下载源都失败时，才回退到机器已有的普通 Java 25 或 Java 21。
 4. Fabric API 优先使用 Modrinth CDN，失败时自动切换 Fabric 官方源。
 5. 首次安装和首次运行需要联网，之后可以离线搜索。
 
@@ -28,4 +28,4 @@ CSV 使用中文表头，可直接用 Excel 打开。同名 TXT 内容一致并�
 
 精细生成线程数会根据 JVM 可用逻辑处理器数量自动调整，并为系统保留 2 个逻辑处理器；具体使用哪些 CPU 核心由 Windows 调度。
 
-Oracle GraalVM 25 是推荐运行环境；普通 Java 25 和 Java 21 仅作下载失败时的兼容回退。在 16 逻辑处理器测试机上，GraalVM 25 配合 14 个精细线程处理 2860 座候选密室约需 55 秒。
+GraalVM 25 是推荐运行环境；普通 Java 25 和 Java 21 仅作下载失败时的兼容回退。在 16 逻辑处理器测试机上，GraalVM 25 配合 14 个精细线程处理 2860 座候选密室约需 55 秒。

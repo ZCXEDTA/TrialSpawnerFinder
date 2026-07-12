@@ -9,8 +9,8 @@ set "SERVER_DIR=%RUNTIME%\server"
 set "JDK_ZIP=%RUNTIME%\jdk.zip"
 set "JAVA_PATH_FILE=%RUNTIME%\java-path.txt"
 set "LOADER_VERSION_FILE=%RUNTIME%\fabric-loader-version.txt"
-set "JDK_MIRROR=https://download.oracle.com/graalvm/25/latest/graalvm-jdk-25_windows-x64_bin.zip"
-set "JDK_FALLBACK=https://github.com/graalvm/graalvm-ce-builds/releases/download/jdk-25.0.2/graalvm-community-jdk-25.0.2_windows-x64_bin.zip"
+set "JDK_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/github-release/graalvm/graalvm-ce-builds/GraalVM%%20Community%%2025%%20Innovation%%201%%20%%28graal%%2025.1.3%%2C%%20jdk%%2025.0.3%%29/graalvm-community-jdk-25i1-25.0.3_windows-x64_bin.zip"
+set "JDK_FALLBACK=https://download.oracle.com/graalvm/25/latest/graalvm-jdk-25_windows-x64_bin.zip"
 set "LOADER_VERSION=0.19.3"
 set "FABRIC_URL=https://meta.fabricmc.net/v2/versions/loader/1.21.1/%LOADER_VERSION%/1.1.1/server/jar"
 set "API_MIRROR=https://cdn.modrinth.com/data/P7dR8mSH/versions/9xIK4e8l/fabric-api-0.116.6+1.21.1.jar"
@@ -30,14 +30,14 @@ if not defined JAVA_EXE (
 )
 if not defined JAVA_EXE if exist "%JAVA_DIR%\bin\java.exe" call :check_graal "%JAVA_DIR%\bin\java.exe"
 if defined JAVA_EXE (
-    echo Using existing Oracle GraalVM 25: !JAVA_EXE!
+    echo Using existing GraalVM 25: !JAVA_EXE!
     >"%JAVA_PATH_FILE%" echo !JAVA_EXE!
     goto java_ready
 )
 if defined JAVA_HOME if exist "%JAVA_HOME%\bin\java.exe" call :check_fallback "%JAVA_HOME%\bin\java.exe"
 for /f "delims=" %%J in ('where.exe java.exe 2^>nul') do if not defined FALLBACK_JAVA_EXE call :check_fallback "%%J"
 if exist "%JAVA_DIR%\bin\java.exe" if not defined FALLBACK_JAVA_EXE call :check_fallback "%JAVA_DIR%\bin\java.exe"
-echo [1/3] Downloading Oracle GraalVM 25, about 345 MB...
+echo [1/3] Downloading GraalVM 25, about 346 MB...
 call :download "%JDK_MIRROR%" "%JDK_FALLBACK%" "%JDK_ZIP%"
 if errorlevel 1 goto use_fallback_java
 if exist "%JAVA_DIR%" rmdir /s /q "%JAVA_DIR%"
