@@ -3,21 +3,21 @@ $ErrorActionPreference = 'Stop'
 
 $project = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $logPath = Join-Path $project 'launcher.log'
-$englishJdk = 'D:\edgedownload\jdk-21_windows-x64_bin\jdk-21.0.8'
-$minecraftJdk = Join-Path $env:APPDATA '.minecraft\runtime\java-runtime-delta'
 $exitCode = 1
 
 try {
     Start-Transcript -LiteralPath $logPath -Force | Out-Null
     Set-Location $project
 
-    if (Test-Path (Join-Path $englishJdk 'bin\java.exe')) {
-        $env:JAVA_HOME = $englishJdk
-    } elseif (Test-Path (Join-Path $minecraftJdk 'bin\java.exe')) {
-        $env:JAVA_HOME = $minecraftJdk
-    } else {
-        throw 'JDK 21 was not found. Run setup.ps1 first.'
+    $javaHomePath = Join-Path $project 'build\java-home.txt'
+    if (-not (Test-Path -LiteralPath $javaHomePath)) {
+        throw 'The build JDK was not recorded. Run setup.ps1 first.'
     }
+    $env:JAVA_HOME = (Get-Content -LiteralPath $javaHomePath -Raw -Encoding ASCII).Trim()
+    if (-not (Test-Path (Join-Path $env:JAVA_HOME 'bin\java.exe'))) {
+        throw 'The build JDK is no longer available. Run setup.ps1 again.'
+    }
+    $env:Path = (Join-Path $env:JAVA_HOME 'bin') + ';' + $env:Path
     $env:GRADLE_USER_HOME = 'C:\GradleCache'
 
     $jar = Join-Path $project 'build\libs\trial-spawner-finder-1.0.0.jar'

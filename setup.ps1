@@ -37,6 +37,7 @@ try {
         --scan-class-path --details=summary
     if ($LASTEXITCODE -ne 0) { throw "Tests failed with exit code $LASTEXITCODE" }
 
+    Set-Content -LiteralPath 'build\java-home.txt' -Value $env:JAVA_HOME -Encoding ASCII
     New-Item -ItemType Directory -Force -Path 'run' | Out-Null
     Copy-Item 'finder.properties' 'run\finder.properties' -Force
     Write-Host 'Build completed. Run run.bat to start searching.'
