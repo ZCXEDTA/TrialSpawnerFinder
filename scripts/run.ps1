@@ -9,19 +9,18 @@ try {
     Start-Transcript -LiteralPath $logPath -Force | Out-Null
     Set-Location $project
 
-    $javaHomes = @(@(
-        'D:\edgedownload\graalvm-jdk-25_windows-x64_bin\graalvm-jdk-25.0.2+10.1',
-        (Join-Path $project 'java'),
-        $env:JAVA_HOME
-    ) | Where-Object {
-        if (-not $_) { return $false }
-        $java = Join-Path $_ 'bin\java.exe'
-        (Test-Path $java) -and ((& $java -version 2>&1) -match 'version "25(?:\.|\")')
-    })
-    if (-not $javaHomes) {
-        throw 'JDK 25 was not found. Run setup.ps1 first.'
+    $javaHomePath = Join-Path $project 'build\java-home.txt'
+    if (-not (Test-Path -LiteralPath $javaHomePath)) {
+        throw 'The build JDK was not recorded. Run setup.ps1 first.'
     }
-    $env:JAVA_HOME = $javaHomes[0]
+    $env:JAVA_HOME = (Get-Content -LiteralPath $javaHomePath -Raw -Encoding ASCII).Trim()
+    $java = Join-Path $env:JAVA_HOME 'bin\java.exe'
+    if (-not (Test-Path $java)) {
+        throw 'The build JDK is no longer available. Run setup.ps1 again.'
+    }
+    if ((& $java -version 2>&1) -notmatch 'version "25(?:\.|\")') {
+        throw 'The recorded build JDK is not Java 25. Run setup.ps1 again.'
+    }
     $env:Path = (Join-Path $env:JAVA_HOME 'bin') + ';' + $env:Path
     $env:GRADLE_USER_HOME = 'C:\GradleCache'
 

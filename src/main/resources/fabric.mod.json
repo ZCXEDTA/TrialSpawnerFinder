@@ -3,7 +3,7 @@
   "id": "trial-spawner-finder",
   "version": "${version}",
   "name": "Trial Spawner Finder",
-  "description": "Experimental Minecraft 26.2 trial chamber benchmark.",
+  "description": "Searches Minecraft 26.2 seeds for dense trial chamber clusters.",
   "environment": "server",
   "entrypoints": {
     "server": [

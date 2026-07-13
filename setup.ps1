@@ -3,7 +3,6 @@ $ErrorActionPreference = 'Stop'
 
 $project = Split-Path -Parent $MyInvocation.MyCommand.Path
 $javaHomes = @(@(
-    'D:\edgedownload\graalvm-jdk-25_windows-x64_bin\graalvm-jdk-25.0.2+10.1',
     (Join-Path $project 'java'),
     'D:\PyCharm\PyCharm 2025.2.0.1\jbr',
     $env:JAVA_HOME
@@ -40,6 +39,7 @@ try {
         --scan-class-path --details=summary
     if ($LASTEXITCODE -ne 0) { throw "Tests failed with exit code $LASTEXITCODE" }
 
+    Set-Content -LiteralPath 'build\java-home.txt' -Value $env:JAVA_HOME -Encoding ASCII
     New-Item -ItemType Directory -Force -Path 'run' | Out-Null
     Copy-Item 'finder.properties' 'run\finder.properties' -Force
     Write-Host 'Build completed. Run run.bat to start searching.'
