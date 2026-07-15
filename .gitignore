@@ -1,6 +1,7 @@
 .gradle/
 build/
 run/
+.runtime/
 .bootstrap-cache/
 results.csv
 results-*.csv

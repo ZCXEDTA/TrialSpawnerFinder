@@ -23,4 +23,4 @@
 
 快速搜索按分片流式处理，不会将整个搜索范围的候选一次性装入内存。`scan-threads` 控制并行快速扫描线程数；`scan-shard-size-blocks` 控制每个分片的边长，默认 `262144`。4 GB 内存建议使用默认分片大小和不超过 8 个线程。
 
-开发构建需要 JDK 21。`setup.ps1` 会选择可用的 JDK 完成构建并记录其路径，之后 `run.bat` 继续使用同一套 Java；开发环境不要求 GraalVM。启动脚本会自动写入临时服务端所需的 `eula=true`，Gradle 缓存放在 `C:\GradleCache`。
+开发构建需要 JDK 21。`setup.ps1` 会从 `JDK21_HOME`、`JAVA_HOME`、PATH 或 Minecraft Runtime 中选择可用的 JDK 并记录其路径，之后 `run.bat` 继续使用同一套 Java；开发环境不要求 GraalVM。启动脚本会自动写入临时服务端所需的 `eula=true`。
