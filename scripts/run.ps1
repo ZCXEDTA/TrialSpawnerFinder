@@ -23,14 +23,14 @@ try {
         throw 'The recorded build JDK is not Java 25. Run setup.ps1 again.'
     }
     $env:Path = (Join-Path $env:JAVA_HOME 'bin') + ';' + $env:Path
-    $jar = Join-Path $project 'build\libs\trial-spawner-finder-1.0.0.jar'
+    $jar = Join-Path $project 'minecraft-26.2-runtime\build\libs\trial-spawner-finder-1.0.0.jar'
     if (-not (Test-Path $jar)) {
         throw 'The project has not been built. Run setup.ps1 first.'
     }
 
     & (Join-Path $project 'scripts\prepare-run.ps1')
     Write-Host "Starting TrialSpawnerFinder with $env:JAVA_HOME"
-    & (Join-Path $project 'gradlew.bat') runServer --console=plain
+    & (Join-Path $project 'gradlew.bat') :minecraft-26.2-runtime:runServer --console=plain
     $exitCode = $LASTEXITCODE
     $failureMarker = Join-Path $project 'run\search.failed'
     if (Test-Path -LiteralPath $failureMarker) {

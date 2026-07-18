@@ -1,0 +1,46 @@
+plugins {
+    id 'net.fabricmc.fabric-loom' version '1.17.14'
+    id 'maven-publish'
+}
+
+base {
+    archivesName = rootProject.archives_base_name
+}
+
+loom {
+    runs {
+        server {
+            runDir '../run'
+        }
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation project(':finder-core')
+    implementation project(':trial-spawner-finder')
+    include project(':finder-core')
+    include project(':trial-spawner-finder')
+
+    minecraft "com.mojang:minecraft:${rootProject.minecraft_version}"
+    implementation "net.fabricmc:fabric-loader:${rootProject.loader_version}"
+    implementation "net.fabricmc.fabric-api:fabric-api:${rootProject.fabric_version}"
+}
+
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('fabric.mod.json') {
+        expand 'version': inputs.properties.version
+    }
+}
+
+java {
+    withSourcesJar()
+}
+
+test {
+    maxParallelForks = 1
+}

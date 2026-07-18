@@ -23,8 +23,8 @@ public final class ShardedClusterScanner {
     // leaving the per-batch candidate and generated-chamber maps bounded.
     static final int MAX_PROCESSING_SHARD_SIZE_BLOCKS = 262_144;
     private static final int SINGLE_STRUCTURE_MAX_SHARD_SIZE_BLOCKS = 32_768;
-    private static final int MIN_PROCESSING_SHARD_SIZE_BLOCKS = 512;
-    private static final int TARGET_SHARDS_PER_THREAD = 8;
+    private static final int MIN_PROCESSING_SHARD_SIZE_BLOCKS = 16_384;
+    private static final int TARGET_SHARDS_PER_THREAD = 2;
 
     private ShardedClusterScanner() {
     }

@@ -584,24 +584,6 @@ public final class FinderSearch {
         return fineThreadCount(availableProcessors) * IN_FLIGHT_TASKS_PER_THREAD;
     }
 
-    static String phaseProgressLine(
-            String phase, int completed, int total, String unit, long elapsedNanos) {
-        int percent = total == 0 ? 100 : (int) Math.round(completed * 100.0 / total);
-        int filled = total == 0 ? 10 : (int) ((long) completed * 10 / total);
-        double seconds = Math.max(0.001, elapsedNanos / 1_000_000_000.0);
-        double throughput = completed / seconds;
-        long remainingNanos = completed == 0 ? 0
-                : Math.max(0, Math.round((double) elapsedNanos * (total - completed) / completed));
-        return "[%s %s%s] %d%% %d/%d | %.1f %s/秒 | ETA %s".formatted(
-                phase, "#".repeat(filled), "-".repeat(10 - filled), percent,
-                completed, total, throughput, unit, formatDuration(remainingNanos));
-    }
-
-    private static String formatDuration(long nanos) {
-        long seconds = java.util.concurrent.TimeUnit.NANOSECONDS.toSeconds(Math.max(0, nanos));
-        return "%02d:%02d:%02d".formatted(seconds / 3600, (seconds / 60) % 60, seconds % 60);
-    }
-
     private static String elapsed(Instant started) {
         Duration duration = Duration.between(started, Instant.now());
         return "%02d:%02d:%02d".formatted(

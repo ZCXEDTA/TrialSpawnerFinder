@@ -1,8 +1,3 @@
-plugins {
-    id 'net.fabricmc.fabric-loom' version '1.17.14'
-    id 'maven-publish'
-}
-
 allprojects {
     version = rootProject.mod_version
     group = rootProject.maven_group
@@ -29,58 +24,4 @@ subprojects {
             useJUnitPlatform()
         }
     }
-}
-
-version = project.mod_version
-group = project.maven_group
-
-base {
-    archivesName = project.archives_base_name
-}
-
-loom {
-    runs {
-        server {
-            runDir 'run'
-        }
-    }
-}
-
-repositories {
-    mavenCentral()
-}
-
-dependencies {
-    implementation project(':finder-core')
-    implementation project(':trial-spawner-finder')
-    include project(':finder-core')
-    include project(':trial-spawner-finder')
-    minecraft "com.mojang:minecraft:${project.minecraft_version}"
-    implementation "net.fabricmc:fabric-loader:${project.loader_version}"
-    implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
-
-    testImplementation platform('org.junit:junit-bom:5.11.4')
-    testImplementation 'org.junit.jupiter:junit-jupiter'
-    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
-}
-
-processResources {
-    inputs.property 'version', project.version
-    filesMatching('fabric.mod.json') {
-        expand 'version': inputs.properties.version
-    }
-}
-
-tasks.withType(JavaCompile).configureEach {
-    it.options.release = 25
-    it.options.encoding = 'UTF-8'
-}
-
-java {
-    withSourcesJar()
-}
-
-test {
-    useJUnitPlatform()
-    maxParallelForks = 1
 }

@@ -78,14 +78,14 @@ class ShardedClusterScannerTest {
 
     @Test
     void automaticallySizesShardsFromRangeAndThreads() {
-        FinderConfig oneThread = config(10_000, 1, 2_000);
-        FinderConfig eightThreads = config(10_000, 8, 262_144);
+        FinderConfig oneThread = config(50_000, 1, 2_000);
+        FinderConfig eightThreads = config(50_000, 8, 262_144);
         FinderConfig largeRange = config(1_000_000, 8, 2_000);
 
         assertTrue(ShardedClusterScanner.processingShardSizeBlocks(eightThreads)
                 < ShardedClusterScanner.processingShardSizeBlocks(oneThread));
         assertEquals(ShardedClusterScanner.processingShardSizeBlocks(eightThreads),
-                ShardedClusterScanner.processingShardSizeBlocks(config(10_000, 8, 2_000)));
+                ShardedClusterScanner.processingShardSizeBlocks(config(50_000, 8, 2_000)));
         assertEquals(32_768, ShardedClusterScanner.processingShardSizeBlocks(largeRange));
     }
 

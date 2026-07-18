@@ -7,7 +7,7 @@
 1. 编辑 `finder.properties`，填写世界种子、搜索范围和阈值。
 2. 在项目目录打开 PowerShell，运行 `powershell -ExecutionPolicy Bypass -File ./setup.ps1` 完成首次构建。
 3. 双击 `run.bat` 开始搜索。
-4. 结果按刷怪笼数量降序保存为 `results-年月日-时分秒.csv`，不会覆盖以前的结果；同名 `.txt` 是适合记事本查看的对齐版本。
+4. 结果按刷怪笼数量降序保存为 `results-trial-spawner-年月日-时分秒.csv`，不会覆盖以前的结果；同名 `.txt` 是适合记事本查看的对齐版本。
 
 如果启动失败，窗口会保留错误信息，并将完整启动日志写入项目根目录的 `launcher.log`。
 
@@ -25,5 +25,5 @@
 
 Minecraft 26.2 开发构建需要 JDK 25。`setup.ps1` 会从项目内 `java`、`JDK25_HOME`、`JAVA_HOME` 或 PATH 中选择可用的 JDK 25 并记录其路径，之后 `run.bat` 继续使用同一套 Java；开发环境不要求 GraalVM。启动脚本会自动写入临时服务端所需的 `eula=true`。
 
-开发者可阅读 [`docs/architecture.md`](docs/architecture.md)，了解公共搜索核心与各类查找器的模块边界。
+项目由 `finder-core`、`trial-spawner-finder` 和 `minecraft-26.2-runtime` 三层组成。开发者可阅读 [`docs/architecture.md`](docs/architecture.md)，了解公共搜索核心与版本运行层的边界。
 试炼密室布局的版本边界和固定种子样本见 [`docs/version-compatibility.md`](docs/version-compatibility.md)。

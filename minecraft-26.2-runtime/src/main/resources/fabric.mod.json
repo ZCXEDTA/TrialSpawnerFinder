@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "id": "trial-spawner-finder",
   "version": "${version}",
-  "name": "Trial Spawner Finder",
-  "description": "Searches Minecraft 26.2 seeds for dense trial chamber clusters.",
+  "name": "Minecraft Finders",
+  "description": "Runs the trial spawner finder with Minecraft 26.2 world generation.",
   "environment": "server",
   "entrypoints": {
     "server": [
-      "cn.trialfinder.TrialSpawnerFinderMod"
+      "cn.minecraftfinder.runtime.MinecraftFindersMod"
     ]
   },
   "mixins": [
