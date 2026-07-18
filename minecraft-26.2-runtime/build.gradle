@@ -11,6 +11,7 @@ loom {
     runs {
         server {
             runDir '../run'
+            vmArg '-Xmx4G'
         }
     }
 }

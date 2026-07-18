@@ -56,7 +56,7 @@ final class TrialSearchCheckpoint {
     static TrialSearchCheckpoint open(
             FinderConfig config, Path requestedOutput, boolean requestedPrediction) throws IOException {
         return open(config, requestedOutput, requestedPrediction,
-                Path.of("run", "checkpoints", "trial-spawner"));
+                Path.of("checkpoints", "trial-spawner"));
     }
 
     static TrialSearchCheckpoint open(

@@ -18,7 +18,7 @@ public final class FinderExecution {
             Files.deleteIfExists(FAILURE_PATH);
             action.run();
         } catch (Exception e) {
-            System.err.println(finderName + "搜索失败：" + e.getMessage());
+            System.err.println(finderName + " 搜索失败：" + e.getMessage());
             e.printStackTrace(System.err);
             try {
                 Files.writeString(FAILURE_PATH, e.toString(), StandardCharsets.UTF_8);

@@ -14,7 +14,7 @@ public final class ConsoleProgressReporter implements ProgressReporter {
         if (searchStartedNanos == 0) {
             searchStartedNanos = System.nanoTime();
         }
-        // 粗筛状态会合并进跨阶段总进度，避免控制台同时滚动两套进度。
+        // 粗筛数据由状态行显示；控制台只保留一条跨阶段的总进度条。
         if ("粗筛".equals(update.phase())) return;
         int percent = (int) (update.completed() * 100 / update.total());
         if (update.completed() != update.total() && percent < nextPercent) return;
