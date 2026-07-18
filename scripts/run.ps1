@@ -18,7 +18,8 @@ try {
     if (-not (Test-Path $java)) {
         throw 'The build JDK is no longer available. Run setup.ps1 again.'
     }
-    if ((& $java -version 2>&1) -notmatch 'version "25(?:\.|\")') {
+    $javaVersion = (& $java --version | Select-Object -First 1).ToString()
+    if ($javaVersion -notmatch '^(?:openjdk|java) 25(?:\.|\s|$)') {
         throw 'The recorded build JDK is not Java 25. Run setup.ps1 again.'
     }
     $env:Path = (Join-Path $env:JAVA_HOME 'bin') + ';' + $env:Path
