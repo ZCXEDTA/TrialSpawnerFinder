@@ -1,14 +1,14 @@
 package cn.trialfinder.config;
 
 import cn.minecraftfinder.core.AreaShape;
+import cn.minecraftfinder.core.FinderProperties;
+import cn.minecraftfinder.core.MinecraftWorld;
+import cn.minecraftfinder.core.SearchArea;
 import cn.minecraftfinder.core.SearchBounds;
+import cn.minecraftfinder.core.ScanSettings;
 
 import java.io.IOException;
-import java.io.Reader;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Properties;
 
 public record FinderConfig(
         long seed,
@@ -16,112 +16,92 @@ public record FinderConfig(
         int searchCenterZ,
         int searchRadiusBlocks,
         boolean fullWorld,
+        AreaShape searchAreaShape,
         int clusterRadiusBlocks,
         AreaShape areaShape,
         int minStructures,
         int minSpawners,
         int scanThreads,
-        int scanShardSizeBlocks) {
+        int scanShardSizeBlocks,
+        TrialSearchMode searchMode,
+        int predictionCalibrationStructures) {
+
+    public FinderConfig(
+            long seed, int searchCenterX, int searchCenterZ, int searchRadiusBlocks,
+            boolean fullWorld, int clusterRadiusBlocks, AreaShape areaShape,
+            int minStructures, int minSpawners, int scanThreads, int scanShardSizeBlocks) {
+        this(seed, searchCenterX, searchCenterZ, searchRadiusBlocks, fullWorld,
+                AreaShape.CIRCLE, clusterRadiusBlocks, areaShape, minStructures, minSpawners,
+                scanThreads, scanShardSizeBlocks, TrialSearchMode.AUTO, 512);
+    }
+
+    public FinderConfig(
+            long seed, int searchCenterX, int searchCenterZ, int searchRadiusBlocks,
+            boolean fullWorld, AreaShape searchAreaShape, int clusterRadiusBlocks,
+            AreaShape areaShape, int minStructures, int minSpawners, int scanThreads,
+            int scanShardSizeBlocks, TrialSearchMode searchMode) {
+        this(seed, searchCenterX, searchCenterZ, searchRadiusBlocks, fullWorld,
+                searchAreaShape, clusterRadiusBlocks, areaShape, minStructures, minSpawners,
+                scanThreads, scanShardSizeBlocks, searchMode, 512);
+    }
 
     public static FinderConfig load(Path path) throws IOException {
-        Properties properties = new Properties();
-        try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
-            properties.load(reader);
-        }
+        FinderProperties properties = FinderProperties.load(path);
+        SearchArea searchArea = SearchArea.load(properties, MinecraftWorld.BLOCK_LIMIT);
+        ScanSettings scan = ScanSettings.load(properties);
 
         FinderConfig config = new FinderConfig(
-                parseLong(properties, "seed"),
-                parseInt(properties, "search-center-x"),
-                parseInt(properties, "search-center-z"),
-                parseInt(properties, "search-radius-blocks"),
-                parseOptionalBoolean(properties, "full-world", false),
-                parseInt(properties, "cluster-radius-blocks"),
-                AreaShape.parse(properties.getProperty("area-shape")),
-                parseInt(properties, "min-structures"),
-                parseInt(properties, "min-spawners"),
-                parseOptionalInt(properties, "scan-threads",
-                        Math.min(8, Runtime.getRuntime().availableProcessors())),
-                parseOptionalInt(properties, "scan-shard-size-blocks", 262_144));
+                properties.requiredLong("seed"),
+                searchArea.centerX(), searchArea.centerZ(), searchArea.radiusBlocks(),
+                searchArea.fullWorld(), searchArea.shape(),
+                requiredInt(properties, "trial-cluster-radius-blocks", "cluster-radius-blocks"),
+                AreaShape.parse(required(properties, "trial-area-shape", "area-shape")),
+                requiredInt(properties, "trial-min-structures", "min-structures"),
+                requiredInt(properties, "trial-min-spawners", "min-spawners"),
+                scan.threads(), scan.shardSizeBlocks(),
+                TrialSearchMode.parse(properties.optional("trial-search-mode", "auto")),
+                properties.optionalInt("trial-prediction-calibration-structures", 512));
         config.validate();
         return config;
     }
 
     private void validate() {
-        if ((!fullWorld && searchRadiusBlocks <= 0) || clusterRadiusBlocks <= 0) {
-            throw new IllegalArgumentException("普通搜索的搜索半径和聚类半径必须大于 0");
-        }
+        if (clusterRadiusBlocks <= 0) throw new IllegalArgumentException("聚类半径必须大于 0");
         if (minStructures <= 0 || minSpawners < 0) {
             throw new IllegalArgumentException("min-structures 必须大于 0，min-spawners 不能小于 0");
         }
-        if (scanThreads <= 0 || scanThreads > 64 || scanShardSizeBlocks <= 0) {
-            throw new IllegalArgumentException("scan-threads 必须为 1..64，scan-shard-size-blocks 必须大于 0");
-        }
-        if (!fullWorld && (Math.abs((long) searchCenterX) > WORLD_LIMIT
-                || Math.abs((long) searchCenterZ) > WORLD_LIMIT)) {
-            throw new IllegalArgumentException("搜索中心超出了 Minecraft 世界边界");
+        if (predictionCalibrationStructures < 0) {
+            throw new IllegalArgumentException("预测校准座数不能小于 0");
         }
     }
 
-    public static final int WORLD_LIMIT = 30_000_000;
+    private static String required(FinderProperties properties, String key, String legacyKey) {
+        return properties.contains(key) ? properties.required(key) : properties.required(legacyKey);
+    }
+
+    private static int requiredInt(FinderProperties properties, String key, String legacyKey) {
+        return properties.contains(key) ? properties.requiredInt(key) : properties.requiredInt(legacyKey);
+    }
 
     public SearchBounds searchBounds() {
-        return fullWorld
-                ? SearchBounds.fullWorld(WORLD_LIMIT)
-                : SearchBounds.around(searchCenterX, searchCenterZ, searchRadiusBlocks, WORLD_LIMIT);
+        return searchArea().bounds();
     }
 
-    public long searchMinX() {
-        return searchBounds().minX();
+    public SearchArea searchArea() {
+        return new SearchArea(searchCenterX, searchCenterZ, searchRadiusBlocks,
+                searchAreaShape, fullWorld, MinecraftWorld.BLOCK_LIMIT);
     }
 
-    public long searchMaxX() {
-        return searchBounds().maxX();
-    }
-
-    public long searchMinZ() {
-        return searchBounds().minZ();
-    }
-
-    public long searchMaxZ() {
-        return searchBounds().maxZ();
-    }
+    public long searchMinX() { return searchBounds().minX(); }
+    public long searchMaxX() { return searchBounds().maxX(); }
+    public long searchMinZ() { return searchBounds().minZ(); }
+    public long searchMaxZ() { return searchBounds().maxZ(); }
 
     public boolean containsSearchPoint(long x, long z) {
-        if (x < -WORLD_LIMIT || x > WORLD_LIMIT || z < -WORLD_LIMIT || z > WORLD_LIMIT) return false;
         if (fullWorld) return true;
         long dx = x - searchCenterX;
         long dz = z - searchCenterZ;
-        long radius = searchRadiusBlocks;
-        return dx * dx + dz * dz <= radius * radius;
-    }
-
-    private static int parseInt(Properties properties, String key) {
-        return Math.toIntExact(parseLong(properties, key));
-    }
-
-    private static int parseOptionalInt(Properties properties, String key, int defaultValue) {
-        String value = properties.getProperty(key);
-        return value == null || value.isBlank() ? defaultValue : parseInt(properties, key);
-    }
-
-    private static boolean parseOptionalBoolean(
-            Properties properties, String key, boolean defaultValue) {
-        String value = properties.getProperty(key);
-        if (value == null || value.isBlank()) return defaultValue;
-        if (value.trim().equalsIgnoreCase("true")) return true;
-        if (value.trim().equalsIgnoreCase("false")) return false;
-        throw new IllegalArgumentException("配置项只能是 true 或 false: " + key + "=" + value);
-    }
-
-    private static long parseLong(Properties properties, String key) {
-        String value = properties.getProperty(key);
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException("缺少配置项: " + key);
-        }
-        try {
-            return Long.parseLong(value.trim());
-        } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("配置项不是有效整数: " + key + "=" + value, e);
-        }
+        return searchAreaShape == AreaShape.SQUARE
+                || dx * dx + dz * dz <= (long) searchRadiusBlocks * searchRadiusBlocks;
     }
 }

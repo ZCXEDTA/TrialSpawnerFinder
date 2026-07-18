@@ -3,6 +3,7 @@ package cn.trialfinder;
 import cn.trialfinder.config.FinderConfig;
 import cn.trialfinder.io.ResultWriter;
 import cn.trialfinder.search.FinderSearch;
+import cn.minecraftfinder.core.ProgressReporter;
 import net.fabricmc.api.DedicatedServerModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.minecraft.server.MinecraftServer;
@@ -43,7 +44,7 @@ public final class TrialSpawnerFinderMod implements DedicatedServerModInitialize
             if (server.overworld().getSeed() != config.seed()) {
                 throw new IllegalStateException("服务端世界种子与 finder.properties 不一致");
             }
-            FinderSearch search = new FinderSearch(config, outputPath);
+            FinderSearch search = new FinderSearch(config, outputPath, ProgressReporter.NONE);
             active[0] = search;
             search.run(server.overworld());
             active[0] = null;
