@@ -9,3 +9,4 @@ pluginManagement {
 rootProject.name = 'TrialSpawnerFinder'
 
 include 'finder-core'
+include 'trial-spawner-finder'
