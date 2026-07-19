@@ -43,7 +43,6 @@ public final class FinderSearch {
     private final TrialResultAccumulator accumulatedResults = new TrialResultAccumulator();
     private final Map<SearchResult, List<BlockPoint>> resultSources = new HashMap<>();
     private TrialSearchCheckpoint checkpoint;
-    private int lastStatusPercent = -1;
 
     public FinderSearch(FinderConfig config, Path output, ProgressReporter progress) {
         this.config = config;
@@ -85,7 +84,6 @@ public final class FinderSearch {
     }
 
     private SearchStatistics execute(ServerLevel world, boolean usePrediction) throws IOException {
-        lastStatusPercent = -1;
         checkpoint = TrialSearchCheckpoint.open(config, output, usePrediction);
         output = checkpoint.output();
         usePrediction = checkpoint.predictionEnabled();
@@ -133,9 +131,11 @@ public final class FinderSearch {
                             } catch (IOException e) {
                                 throw new UncheckedIOException(e);
                             }
-                            progress.report(ProgressUpdate.phase(
-                                    "总进度", checkpoint.completedCount(), batch.shardCount(), "片"));
-                            reportStatus(batch.shardCount(), predictionState, verifiedStructures[0]);
+                            progress.report(
+                                    ProgressUpdate.phase(
+                                            "总进度", checkpoint.completedCount(),
+                                            batch.shardCount(), "片"),
+                                    status(predictionState, verifiedStructures[0]));
                         });
                 if (predictors != null) {
                     verifyFinalResults(
@@ -153,17 +153,10 @@ public final class FinderSearch {
                 verifiedStructures[0]);
     }
 
-    private void reportStatus(
-            int shardCount, PredictionState state, long verifiedStructures) {
-        int completed = checkpoint.completedCount();
-        int percent = shardCount == 0 ? 100 : completed * 100 / shardCount;
-        if (completed != shardCount && percent <= lastStatusPercent) return;
-        lastStatusPercent = percent;
-        System.out.println((
-                "状态：已扫描候选 %,d；预测聚类 %,d；裁剪 %,d；原版验证 %,d 座；"
-                        + "检查点 %,d/%,d。")
+    private static String status(PredictionState state, long verifiedStructures) {
+        return "候选 %,d；聚类 %,d；裁剪 %,d；原版验证 %,d 座"
                 .formatted(state.scannedCandidates, state.predictedClusters,
-                        state.prunedClusters, verifiedStructures, completed, shardCount));
+                        state.prunedClusters, verifiedStructures);
     }
 
     private static TrialSearchCheckpoint.Statistics statistics(

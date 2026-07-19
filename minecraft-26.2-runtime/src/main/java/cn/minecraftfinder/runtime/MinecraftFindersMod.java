@@ -50,8 +50,12 @@ public final class MinecraftFindersMod implements DedicatedServerModInitializer 
         if (configured == null || configured.isBlank()) {
             configured = System.getProperty("trialfinder.output");
         }
-        return configured == null || configured.isBlank()
-                ? ResultFiles.next(Path.of(".."), "trial-spawner")
-                : ResultFiles.next(Path.of(configured));
+        if (configured != null && !configured.isBlank()) {
+            return ResultFiles.next(Path.of(configured));
+        }
+        String outputDirectory = System.getProperty("minecraftfinders.outputDirectory");
+        Path directory = outputDirectory == null || outputDirectory.isBlank()
+                ? Path.of("..") : Path.of(outputDirectory);
+        return ResultFiles.next(directory, "trial-spawner");
     }
 }
