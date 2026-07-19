@@ -39,7 +39,7 @@ public final class MinecraftFindersMod implements DedicatedServerModInitializer 
             throw new IllegalStateException("服务端世界种子与 finder.properties 不一致");
         }
         FinderSearch search = new FinderSearch(
-                config, outputPath, new ConsoleProgressReporter());
+                config, outputPath, new ProgressEventReporter());
         active[0] = search;
         search.run(server.overworld());
         active[0] = null;

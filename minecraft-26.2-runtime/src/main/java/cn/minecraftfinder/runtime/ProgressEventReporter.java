@@ -8,32 +8,24 @@ import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-public final class ConsoleProgressReporter implements ProgressReporter {
+public final class ProgressEventReporter implements ProgressReporter {
     private static final long MAX_SILENCE_NANOS = TimeUnit.SECONDS.toNanos(1);
-    private static final String COARSE_PHASE = "粗筛";
-    private static final String TOTAL_PHASE = "总进度";
-    private static final String ERASE_LINE = "\u001B[2K";
-    private static final String CURSOR_UP = "\u001B[1A";
+    private static final String PROTOCOL_PREFIX = "@@MFP1|";
 
     private final PrintStream output;
     private final Map<String, PhaseState> phases = new HashMap<>();
-    private int previousWidth;
-    private String coarseLine;
-    private String totalLine;
-    private boolean coarseComplete;
-    private boolean totalComplete;
-    private boolean dashboardActive;
 
-    public ConsoleProgressReporter() {
+    public ProgressEventReporter() {
         this(new PrintStream(
                 new FileOutputStream(FileDescriptor.out), true, StandardCharsets.UTF_8));
     }
 
-    ConsoleProgressReporter(PrintStream output) {
+    ProgressEventReporter(PrintStream output) {
         this.output = output;
     }
 
@@ -77,68 +69,16 @@ public final class ConsoleProgressReporter implements ProgressReporter {
             line += " | " + details;
         }
         boolean complete = update.completed() == update.total();
-        if (COARSE_PHASE.equals(update.phase())) {
-            coarseLine = line;
-            coarseComplete = complete;
-            renderSearchDashboard();
-        } else if (TOTAL_PHASE.equals(update.phase())) {
-            totalLine = line;
-            totalComplete = complete;
-            renderSearchDashboard();
-        } else {
-            renderSingleLine(line, complete);
-        }
+        output.println(PROTOCOL_PREFIX + encode(update.phase()) + '|'
+                + (complete ? '1' : '0') + '|' + encode(line));
         state.lastReportedNanos = now;
         state.lastCompleted = update.completed();
         state.lastProcessed = update.processed();
         state.nextPercent = percent + 1;
     }
 
-    private void renderSearchDashboard() {
-        if (coarseLine == null || totalLine == null) {
-            String line = coarseLine != null ? coarseLine : totalLine;
-            renderSingleLine(line, coarseComplete || totalComplete);
-            return;
-        }
-        if (dashboardActive) {
-            output.print('\r');
-            output.print(ERASE_LINE);
-            output.print(CURSOR_UP);
-        } else {
-            output.print('\r');
-            output.print(ERASE_LINE);
-            dashboardActive = true;
-        }
-        output.print('\r');
-        output.print(ERASE_LINE);
-        output.print(coarseLine);
-        output.println();
-        output.print(ERASE_LINE);
-        output.print(totalLine);
-        if (coarseComplete && totalComplete) {
-            output.println();
-            dashboardActive = false;
-            previousWidth = 0;
-        } else {
-            output.flush();
-        }
-    }
-
-    private void renderSingleLine(String line, boolean complete) {
-        output.print('\r');
-        output.print(line);
-        if (line.length() < previousWidth) {
-            output.print(" ".repeat(previousWidth - line.length()));
-            output.print('\r');
-            output.print(line);
-        }
-        if (complete) {
-            output.println();
-            previousWidth = 0;
-        } else {
-            output.flush();
-            previousWidth = line.length();
-        }
+    private static String encode(String value) {
+        return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
     }
 
     private static final class PhaseState {

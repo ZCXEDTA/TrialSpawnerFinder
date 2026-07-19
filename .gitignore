@@ -21,3 +21,4 @@ release/**/.runtime/
 release/**/results.csv
 release/**/results-*.csv
 release/**/results-*.txt
+docs/
