@@ -8,11 +8,15 @@ import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 public final class ConsoleProgressReporter implements ProgressReporter {
+    private static final long MAX_SILENCE_NANOS = TimeUnit.SECONDS.toNanos(1);
+
     private final PrintStream output;
-    private long searchStartedNanos;
-    private int nextPercent = 1;
+    private final Map<String, PhaseState> phases = new HashMap<>();
     private int previousWidth;
 
     public ConsoleProgressReporter() {
@@ -32,17 +36,27 @@ public final class ConsoleProgressReporter implements ProgressReporter {
     @Override
     public synchronized void report(ProgressUpdate update, String details) {
         if (update.total() == 0) return;
-        if (searchStartedNanos == 0) {
-            searchStartedNanos = System.nanoTime();
+        long now = System.nanoTime();
+        PhaseState state = phases.get(update.phase());
+        if (state == null || update.completed() < state.lastCompleted) {
+            state = new PhaseState(now);
+            phases.put(update.phase(), state);
         }
-        // 粗筛数据由状态行显示；控制台只保留一条跨阶段的总进度条。
-        if ("粗筛".equals(update.phase())) return;
         int percent = (int) (update.completed() * 100 / update.total());
-        if (update.completed() != update.total() && percent < nextPercent) return;
+        boolean firstReport = state.lastReportedNanos == 0;
+        boolean timeDue = now - state.lastReportedNanos >= MAX_SILENCE_NANOS;
+        if (update.completed() != update.total()
+                && !firstReport && percent < state.nextPercent && !timeDue) return;
 
-        long elapsedNanos = System.nanoTime() - searchStartedNanos;
-        String line = ProgressFormatter.phase(
-                update.phase(), update.completed(), update.total(), update.unit(), elapsedNanos);
+        long elapsedNanos = update.elapsedNanos() >= 0
+                ? update.elapsedNanos() : now - state.startedNanos;
+        String line = update.hasEstimatedWork()
+                ? ProgressFormatter.estimatedWork(
+                        update.phase(), update.completed(), update.total(), update.processed(),
+                        update.estimatedWork(), update.unit(), elapsedNanos)
+                : ProgressFormatter.phase(
+                        update.phase(), update.completed(), update.total(),
+                        update.unit(), elapsedNanos);
         if (details != null && !details.isBlank()) {
             line += " | " + details;
         }
@@ -60,6 +74,19 @@ public final class ConsoleProgressReporter implements ProgressReporter {
             output.flush();
             previousWidth = line.length();
         }
-        nextPercent = percent + 1;
+        state.lastReportedNanos = now;
+        state.lastCompleted = update.completed();
+        state.nextPercent = percent + 1;
+    }
+
+    private static final class PhaseState {
+        private final long startedNanos;
+        private long lastReportedNanos;
+        private long lastCompleted;
+        private int nextPercent = 1;
+
+        private PhaseState(long startedNanos) {
+            this.startedNanos = startedNanos;
+        }
     }
 }

@@ -12,6 +12,21 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ConsoleProgressReporterTest {
     @Test
+    void showsInitialCoarseScanBeforeOnePercentCompletes() {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        ConsoleProgressReporter reporter = new ConsoleProgressReporter(
+                new PrintStream(bytes, true, StandardCharsets.UTF_8));
+
+        reporter.report(ProgressUpdate.estimated(
+                "粗筛", 0, 10_000, "个", 0, 2_000_000));
+
+        String running = bytes.toString(StandardCharsets.UTF_8);
+        assertTrue(running.startsWith("\r[粗筛"));
+        assertTrue(running.contains("0% 0/10000"));
+        assertTrue(running.contains("ETA 00:00:00"));
+    }
+
+    @Test
     void rewritesProgressInPlaceAndFinishesWithNewline() {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         ConsoleProgressReporter reporter = new ConsoleProgressReporter(

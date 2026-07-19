@@ -56,12 +56,17 @@ public final class ShardedClusterScanner {
                 .filter(shard -> shouldProcess.test(shard.index()))
                 .toList();
         long candidateCount = 0;
-        int completed = shards.size() - pendingShards.size();
-        int nextReportPercent = 1;
-        long estimatedCandidates = estimatedCandidateCount(config);
+        int scanned = 0;
+        long scannedCandidates = 0;
+        long scanElapsedNanos = 0;
+        long estimatedCandidates = Math.max(1, Math.round(
+                estimatedCandidateCount(config)
+                        * (pendingShards.size() / (double) shards.size())));
         long scanStartedNanos = System.nanoTime();
-        progress.report(ProgressUpdate.estimated(
-                "粗筛", 0, shards.size(), "个", 0, estimatedCandidates));
+        if (!pendingShards.isEmpty()) {
+            progress.report(ProgressUpdate.estimated(
+                    "粗筛", 0, pendingShards.size(), "个", 0, estimatedCandidates));
+        }
 
         try (ExecutorService executor = Executors.newFixedThreadPool(config.scanThreads())) {
             CompletionService<ShardResult> completion = new ExecutorCompletionService<>(executor);
@@ -78,6 +83,14 @@ public final class ShardedClusterScanner {
                 }
                 ShardResult result = completion.take().get();
                 running--;
+                scanned++;
+                scannedCandidates += result.candidateCount();
+                scanElapsedNanos = Math.max(
+                        scanElapsedNanos, result.scanCompletedNanos() - scanStartedNanos);
+                progress.report(ProgressUpdate.estimatedAt(
+                        "粗筛", scanned, pendingShards.size(), "个",
+                        scannedCandidates, estimatedCandidates,
+                        scanElapsedNanos));
                 ready.put(result.shardIndex(), result);
 
                 while (nextToConsume < pendingShards.size()) {
@@ -85,21 +98,10 @@ public final class ShardedClusterScanner {
                     ShardResult ordered = ready.remove(expected);
                     if (ordered == null) break;
                     nextToConsume++;
-                    completed++;
                     candidateCount += ordered.candidateCount();
                     consumer.accept(new ClusterBatch(
                             ordered.shardIndex(), shards.size(),
                             ordered.candidateCount(), ordered.clusters()));
-                    int percent = completed * 100 / shards.size();
-                    if (completed == shards.size() || percent >= nextReportPercent) {
-                        progress.report(ProgressUpdate.estimatedAt(
-                                "粗筛", completed, shards.size(), "个",
-                                candidateCount, estimatedCandidates,
-                                Math.max(0, ordered.scanCompletedNanos() - scanStartedNanos)));
-                        while (nextReportPercent <= percent) {
-                            nextReportPercent++;
-                        }
-                    }
                 }
             }
         } catch (InterruptedException e) {

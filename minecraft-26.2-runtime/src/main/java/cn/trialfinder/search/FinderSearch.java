@@ -27,6 +27,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Function;
+import java.util.function.IntConsumer;
 import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
@@ -110,6 +111,11 @@ public final class FinderSearch {
 
         try (ExecutorService executor = Executors.newFixedThreadPool(threadCount)) {
             try {
+                progress.report(
+                        ProgressUpdate.phase(
+                                "总进度", checkpoint.completedCount(),
+                                ShardedClusterScanner.processingShardCount(config), "片"),
+                        status(predictionState, verifiedStructures[0]));
                 ShardedClusterScanner.scanBatches(
                         config,
                         progress,
@@ -355,8 +361,19 @@ public final class FinderSearch {
 
         System.out.println("正在用原版复核最终榜单：%,d 条结果，%,d 座候选密室。".formatted(
                 expected.size(), requiredStructures.size()));
+        int totalWork = requiredStructures.size() + expected.size();
+        int[] generatedCount = {0};
+        int[] rankedCount = {0};
+        reportFinalVerificationProgress(
+                generatedCount[0], requiredStructures.size(),
+                rankedCount[0], expected.size(), totalWork);
         Map<BlockPoint, TrialChamberGenerator.GeneratedChamber> generated = generateBounded(
-                requiredStructures, generators, executor, maxInFlight);
+                requiredStructures, generators, executor, maxInFlight, completed -> {
+                    generatedCount[0] += completed;
+                    reportFinalVerificationProgress(
+                            generatedCount[0], requiredStructures.size(),
+                            rankedCount[0], expected.size(), totalWork);
+                });
         verifiedStructures[0] += requiredStructures.size();
 
         TrialResultAccumulator verified = new TrialResultAccumulator();
@@ -368,6 +385,10 @@ public final class FinderSearch {
                         "最终榜单候选的原版结果与快速布局不一致: " + predicted.structures());
             }
             verified.accept(actual);
+            rankedCount[0]++;
+            reportFinalVerificationProgress(
+                    generatedCount[0], requiredStructures.size(),
+                    rankedCount[0], expected.size(), totalWork);
         }
         if (!expected.equals(verified.results())) {
             throw new PredictionMismatchException("最终榜单的原版排名与快速排名不一致");
@@ -375,6 +396,15 @@ public final class FinderSearch {
         accumulatedResults.clear();
         verified.results().forEach(accumulatedResults::accept);
         resultSources.clear();
+    }
+
+    private void reportFinalVerificationProgress(
+            int generated, int structureTotal, int ranked, int resultTotal, int totalWork) {
+        progress.report(
+                ProgressUpdate.phase(
+                        "最终复核", generated + ranked, totalWork, "项"),
+                "原版生成 %,d/%,d；榜单验证 %,d/%,d"
+                        .formatted(generated, structureTotal, ranked, resultTotal));
     }
 
     private static void addCalibrationStructures(
@@ -471,6 +501,16 @@ public final class FinderSearch {
             ThreadLocal<TrialChamberGenerator> generators,
             ExecutorService executor,
             int maxInFlight) {
+        return generateBounded(
+                requiredStructures, generators, executor, maxInFlight, ignored -> { });
+    }
+
+    private static Map<BlockPoint, TrialChamberGenerator.GeneratedChamber> generateBounded(
+            Set<BlockPoint> requiredStructures,
+            ThreadLocal<TrialChamberGenerator> generators,
+            ExecutorService executor,
+            int maxInFlight,
+            IntConsumer completed) {
         Map<BlockPoint, TrialChamberGenerator.GeneratedChamber> generated =
                 new HashMap<>(requiredStructures.size());
         List<BlockPoint> failed = new ArrayList<>();
@@ -488,13 +528,16 @@ public final class FinderSearch {
                 }
                 GenerationBatchOutcome outcome = completion.take().get();
                 running--;
+                int successful = 0;
                 for (GenerationOutcome generation : outcome.generations()) {
                     if (generation.failure() == null) {
                         generated.put(generation.point(), generation.chamber());
+                        successful++;
                     } else {
                         failed.add(generation.point());
                     }
                 }
+                if (successful > 0) completed.accept(successful);
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -510,6 +553,7 @@ public final class FinderSearch {
             for (BlockPoint point : failed) {
                 try {
                     generated.put(point, retryGenerator.generate(point));
+                    completed.accept(1);
                 } catch (RuntimeException e) {
                     throw new IllegalStateException(
                             "密室 %d,%d 串行重试仍然失败".formatted(point.x(), point.z()), e);
