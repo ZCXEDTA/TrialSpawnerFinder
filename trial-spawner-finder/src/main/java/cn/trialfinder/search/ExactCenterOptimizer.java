@@ -10,6 +10,7 @@ import java.util.List;
 public final class ExactCenterOptimizer {
     // Keep auxiliary memory bounded when callers use unusually large radii.
     private static final int MAX_CIRCLE_LOOKUP_RADIUS = 1_000_000;
+    private static final int MAX_SQUARE_DIFFERENCE_CELLS = 1_000_000;
     private static volatile CircleHorizontalCache circleHorizontalCache;
 
     private ExactCenterOptimizer() {
@@ -17,6 +18,10 @@ public final class ExactCenterOptimizer {
 
     public static CenterScore find(AreaShape shape, int radius, List<BlockPoint> structures,
                             Collection<SpawnerPoint> spawners) {
+        if (shape == AreaShape.SQUARE) {
+            CenterScore square = findSquare(radius, structures, spawners);
+            if (square != null) return square;
+        }
         int minZ = structures.stream().mapToInt(BlockPoint::z).max().orElseThrow() - radius;
         int maxZ = structures.stream().mapToInt(BlockPoint::z).min().orElseThrow() + radius;
         CenterScore best = null;
@@ -51,6 +56,60 @@ public final class ExactCenterOptimizer {
             }
         }
         if (best == null) throw new IllegalStateException("找不到能包含所有密室起点的整数中心");
+        return best;
+    }
+
+    private static CenterScore findSquare(
+            int radius, List<BlockPoint> structures, Collection<SpawnerPoint> spawners) {
+        int minX = structures.stream().mapToInt(BlockPoint::x).max().orElseThrow() - radius;
+        int maxX = structures.stream().mapToInt(BlockPoint::x).min().orElseThrow() + radius;
+        int minZ = structures.stream().mapToInt(BlockPoint::z).max().orElseThrow() - radius;
+        int maxZ = structures.stream().mapToInt(BlockPoint::z).min().orElseThrow() + radius;
+        if (minX > maxX || minZ > maxZ) {
+            throw new IllegalStateException("找不到能包含所有密室起点的整数中心");
+        }
+
+        long widthLong = (long) maxX - minX + 1;
+        long heightLong = (long) maxZ - minZ + 1;
+        // Keep concurrent searches bounded for unusually large configured radii.
+        if (widthLong > MAX_SQUARE_DIFFERENCE_CELLS
+                || heightLong > MAX_SQUARE_DIFFERENCE_CELLS
+                || widthLong * heightLong > MAX_SQUARE_DIFFERENCE_CELLS) {
+            return null;
+        }
+        int width = (int) widthLong;
+        int height = (int) heightLong;
+        int stride = width + 1;
+        int[] difference = new int[stride * (height + 1)];
+        for (SpawnerPoint spawner : spawners) {
+            int fromX = Math.max(minX, spawner.x() - radius);
+            int toX = Math.min(maxX, spawner.x() + radius);
+            int fromZ = Math.max(minZ, spawner.z() - radius);
+            int toZ = Math.min(maxZ, spawner.z() + radius);
+            if (fromX > toX || fromZ > toZ) continue;
+
+            int x0 = fromX - minX;
+            int x1 = toX - minX + 1;
+            int z0 = fromZ - minZ;
+            int z1 = toZ - minZ + 1;
+            difference[z0 * stride + x0]++;
+            difference[z0 * stride + x1]--;
+            difference[z1 * stride + x0]--;
+            difference[z1 * stride + x1]++;
+        }
+
+        CenterScore best = null;
+        for (int z = 0; z < height; z++) {
+            int rowSum = 0;
+            for (int x = 0; x < width; x++) {
+                int index = z * stride + x;
+                rowSum += difference[index];
+                int count = rowSum + (z == 0 ? 0 : difference[index - stride]);
+                difference[index] = count;
+                CenterScore candidate = new CenterScore(minX + x, minZ + z, count);
+                if (best == null || candidate.compareTo(best) < 0) best = candidate;
+            }
+        }
         return best;
     }
 
