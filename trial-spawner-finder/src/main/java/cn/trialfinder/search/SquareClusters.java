@@ -20,17 +20,27 @@ public final class SquareClusters {
             List<BlockPoint> points, int radius, int minimum) {
         int cellSize = Math.max(1, radius * 2);
         Map<Long, List<Integer>> grid = new HashMap<>();
-        Set<Center> centers = new LinkedHashSet<>();
 
         for (int i = 0; i < points.size(); i++) {
             BlockPoint point = points.get(i);
-            centers.add(new Center(point.x(), point.z()));
             int cellX = Math.floorDiv(point.x(), cellSize);
             int cellZ = Math.floorDiv(point.z(), cellSize);
             grid.computeIfAbsent(cellKey(cellX, cellZ), ignored -> new ArrayList<>()).add(i);
         }
 
-        for (BlockPoint anchor : points) {
+        boolean[] eligible = new boolean[points.size()];
+        for (int index = 0; index < points.size(); index++) {
+            BlockPoint point = points.get(index);
+            int cellX = Math.floorDiv(point.x(), cellSize);
+            int cellZ = Math.floorDiv(point.z(), cellSize);
+            eligible[index] = hasNearbyAtLeast(
+                    points, grid, point, cellX, cellZ, radius, minimum);
+        }
+
+        Set<Long> boundaryCenters = new LinkedHashSet<>();
+        for (int anchorIndex = 0; anchorIndex < points.size(); anchorIndex++) {
+            if (!eligible[anchorIndex]) continue;
+            BlockPoint anchor = points.get(anchorIndex);
             int cellX = Math.floorDiv(anchor.x(), cellSize);
             int cellZ = Math.floorDiv(anchor.z(), cellSize);
             Set<Integer> xs = new LinkedHashSet<>();
@@ -51,22 +61,34 @@ public final class SquareClusters {
             }
             for (int x : xs) {
                 for (int z : zs) {
-                    centers.add(new Center(x, z));
+                    boundaryCenters.add(cellKey(x, z));
                 }
             }
         }
 
+        List<Long> centers = new ArrayList<>(boundaryCenters.size());
+        for (int index = 0; index < points.size(); index++) {
+            BlockPoint point = points.get(index);
+            long key = cellKey(point.x(), point.z());
+            if (eligible[index] || boundaryCenters.remove(key)) {
+                centers.add(key);
+            }
+        }
+        centers.addAll(boundaryCenters);
+
         Map<List<BlockPoint>, CircleClusters.StructureCluster> unique = new LinkedHashMap<>();
-        for (Center center : centers) {
-            int cellX = Math.floorDiv(center.x, cellSize);
-            int cellZ = Math.floorDiv(center.z, cellSize);
+        for (long center : centers) {
+            int centerX = (int) (center >> 32);
+            int centerZ = (int) center;
+            int cellX = Math.floorDiv(centerX, cellSize);
+            int cellZ = Math.floorDiv(centerZ, cellSize);
             List<BlockPoint> members = new ArrayList<>();
             for (int dx = -1; dx <= 1; dx++) {
                 for (int dz = -1; dz <= 1; dz++) {
                     for (int index : grid.getOrDefault(cellKey(cellX + dx, cellZ + dz), List.of())) {
                         BlockPoint point = points.get(index);
-                        if (Math.abs((long) point.x() - center.x) <= radius
-                                && Math.abs((long) point.z() - center.z) <= radius) {
+                        if (Math.abs((long) point.x() - centerX) <= radius
+                                && Math.abs((long) point.z() - centerZ) <= radius) {
                             members.add(point);
                         }
                     }
@@ -107,6 +129,32 @@ public final class SquareClusters {
         return ((long) x << 32) ^ (z & 0xffff_ffffL);
     }
 
-    private record Center(int x, int z) {
+    private static boolean hasNearbyAtLeast(
+            List<BlockPoint> points,
+            Map<Long, List<Integer>> grid,
+            BlockPoint point,
+            int cellX,
+            int cellZ,
+            int radius,
+            int minimum) {
+        long diameter = radius * 2L;
+        int nearbyCount = 0;
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                List<Integer> cell = grid.get(cellKey(cellX + dx, cellZ + dz));
+                if (cell == null) {
+                    continue;
+                }
+                for (int other : cell) {
+                    BlockPoint nearby = points.get(other);
+                    if (Math.abs((long) point.x() - nearby.x()) <= diameter
+                            && Math.abs((long) point.z() - nearby.z()) <= diameter
+                            && ++nearbyCount >= minimum) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 }
