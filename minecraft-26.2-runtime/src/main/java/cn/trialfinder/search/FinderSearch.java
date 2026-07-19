@@ -108,13 +108,16 @@ public final class FinderSearch {
         PredictionState predictionState = new PredictionState(
                 restoredStatistics, config.predictionCalibrationStructures());
         long[] verifiedStructures = {restoredStatistics.verifiedStructures()};
+        int shardCount = ShardedClusterScanner.processingShardCount(config);
+        long estimatedCandidates = ShardedClusterScanner.estimatedCandidateCount(config);
 
         try (ExecutorService executor = Executors.newFixedThreadPool(threadCount)) {
             try {
                 progress.report(
-                        ProgressUpdate.phase(
+                        ProgressUpdate.estimated(
                                 "总进度", checkpoint.completedCount(),
-                                ShardedClusterScanner.processingShardCount(config), "片"),
+                                shardCount, "个", predictionState.scannedCandidates,
+                                estimatedCandidates),
                         status(predictionState, verifiedStructures[0]));
                 ShardedClusterScanner.scanBatches(
                         config,
@@ -138,9 +141,11 @@ public final class FinderSearch {
                                 throw new UncheckedIOException(e);
                             }
                             progress.report(
-                                    ProgressUpdate.phase(
+                                    ProgressUpdate.estimated(
                                             "总进度", checkpoint.completedCount(),
-                                            batch.shardCount(), "片"),
+                                            batch.shardCount(), "个",
+                                            predictionState.scannedCandidates,
+                                            estimatedCandidates),
                                     status(predictionState, verifiedStructures[0]));
                         });
                 if (predictors != null) {

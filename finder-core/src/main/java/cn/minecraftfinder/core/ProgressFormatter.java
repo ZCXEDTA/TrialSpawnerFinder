@@ -19,19 +19,30 @@ public final class ProgressFormatter {
     public static String estimatedWork(
             String phase, long completed, long total, long processed,
             long estimatedWork, String unit, long elapsedNanos) {
+        return estimatedWork(
+                phase, completed, total, processed, estimatedWork,
+                unit, 0, elapsedNanos);
+    }
+
+    public static String estimatedWork(
+            String phase, long completed, long total, long processed,
+            long estimatedWork, String unit, long initialProcessed, long elapsedNanos) {
         double elapsedSeconds = Math.max(0.001, elapsedNanos / 1_000_000_000.0);
-        long throughput = Math.round(processed / elapsedSeconds);
+        long throughput = Math.round(Math.max(0, processed - initialProcessed) / elapsedSeconds);
         long remainingNanos = completed >= total || throughput == 0 ? 0
                 : Math.max(0, Math.round((estimatedWork - processed)
                         / (double) throughput * 1_000_000_000.0));
+        long progressTotal = completed >= total
+                ? processed : Math.max(estimatedWork, processed + 1);
         return "%s | %s %s | %s %s/秒 | ETA %s".formatted(
-                bar(phase, completed, total), compact(processed), unit,
+                bar(phase, processed, progressTotal), compact(processed), unit,
                 compact(throughput), unit, duration(remainingNanos));
     }
 
     private static String bar(String phase, long completed, long total) {
         int filled = total == 0 ? 10 : (int) Math.min(10, completed * 10 / total);
-        int percent = total == 0 ? 100 : (int) Math.round(completed * 100.0 / total);
+        int percent = total == 0 ? 100
+                : (int) Math.min(100, Math.round(completed * 100.0 / total));
         String prefix = phase == null || phase.isBlank() ? "" : phase + " ";
         return "[%s%s%s] %d%% %d/%d".formatted(
                 prefix, "#".repeat(filled), "-".repeat(10 - filled),

@@ -22,8 +22,26 @@ class ConsoleProgressReporterTest {
 
         String running = bytes.toString(StandardCharsets.UTF_8);
         assertTrue(running.startsWith("\r[粗筛"));
-        assertTrue(running.contains("0% 0/10000"));
+        assertTrue(running.contains("0% 0/2000000"));
         assertTrue(running.contains("ETA 00:00:00"));
+    }
+
+    @Test
+    void keepsCoarseAndTotalProgressOnSeparateRows() {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        ConsoleProgressReporter reporter = new ConsoleProgressReporter(
+                new PrintStream(bytes, true, StandardCharsets.UTF_8));
+
+        reporter.report(ProgressUpdate.estimated(
+                "总进度", 0, 10, "个", 0, 1_000));
+        reporter.report(ProgressUpdate.estimated(
+                "粗筛", 0, 10, "个", 0, 1_000));
+
+        String running = bytes.toString(StandardCharsets.UTF_8);
+        assertTrue(running.contains("\u001B[2K"));
+        assertTrue(running.lastIndexOf("[粗筛") < running.lastIndexOf("[总进度"));
+        assertTrue(running.substring(running.lastIndexOf("[粗筛"))
+                .contains(System.lineSeparator()));
     }
 
     @Test
