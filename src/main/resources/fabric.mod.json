@@ -3,7 +3,7 @@
   "id": "trial-spawner-finder",
   "version": "${version}",
   "name": "Trial Spawner Finder",
-  "description": "Searches Minecraft 1.21.1 seeds for dense trial chamber clusters.",
+  "description": "Searches Minecraft 1.21.11 seeds for dense trial chamber clusters.",
   "environment": "server",
   "entrypoints": {
     "server": [
@@ -16,7 +16,7 @@
   "depends": {
     "fabricloader": ">=0.16.0",
     "fabric-api": "*",
-    "minecraft": "1.21.1",
+    "minecraft": "1.21.11",
     "java": ">=21"
   }
 }

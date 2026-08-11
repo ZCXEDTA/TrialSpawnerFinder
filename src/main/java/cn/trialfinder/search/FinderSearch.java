@@ -6,7 +6,7 @@ import cn.trialfinder.model.BlockPoint;
 import cn.trialfinder.model.SearchResult;
 import cn.trialfinder.model.SpawnerPoint;
 import cn.trialfinder.world.TrialChamberGenerator;
-import net.minecraft.server.world.ServerWorld;
+import net.minecraft.server.level.ServerLevel;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -36,7 +36,7 @@ public final class FinderSearch {
         this.output = output;
     }
 
-    public void run(ServerWorld world) throws IOException {
+    public void run(ServerLevel world) throws IOException {
         Instant started = Instant.now();
         System.out.println("[1/3] 多线程分片枚举并筛选聚类...");
         System.out.println("JVM 可用逻辑处理器：%d；快速扫描实际线程：%d".formatted(

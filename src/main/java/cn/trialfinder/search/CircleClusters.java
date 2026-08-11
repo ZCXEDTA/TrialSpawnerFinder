@@ -6,7 +6,6 @@ import cn.trialfinder.model.CircleCenter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -23,19 +22,20 @@ public final class CircleClusters {
             centers.add(new CircleCenter(point.x(), point.z()));
         }
         int cellSize = Math.max(1, radius * 2);
-        Map<Long, List<Integer>> grid = new HashMap<>();
+        PointGrid grid = new PointGrid(points.size());
         for (int i = 0; i < points.size(); i++) {
             BlockPoint point = points.get(i);
             int cellX = Math.floorDiv(point.x(), cellSize);
             int cellZ = Math.floorDiv(point.z(), cellSize);
             for (int dx = -1; dx <= 1; dx++) {
                 for (int dz = -1; dz <= 1; dz++) {
-                    for (int other : grid.getOrDefault(cellKey(cellX + dx, cellZ + dz), List.of())) {
+                    for (int other = grid.first(cellX + dx, cellZ + dz);
+                         other >= 0; other = grid.next(other)) {
                         addIntersections(points.get(other), point, radius, centers);
                     }
                 }
             }
-            grid.computeIfAbsent(cellKey(cellX, cellZ), ignored -> new ArrayList<>()).add(i);
+            grid.add(cellX, cellZ, i);
         }
 
         Map<List<BlockPoint>, StructureCluster> unique = new LinkedHashMap<>();
@@ -43,18 +43,19 @@ public final class CircleClusters {
         for (CircleCenter center : centers) {
             int centerCellX = Math.floorDiv((int) Math.floor(center.x()), cellSize);
             int centerCellZ = Math.floorDiv((int) Math.floor(center.z()), cellSize);
-            List<BlockPoint> nearby = new ArrayList<>();
+            List<BlockPoint> members = new ArrayList<>();
             for (int dx = -1; dx <= 1; dx++) {
                 for (int dz = -1; dz <= 1; dz++) {
-                    for (int index : grid.getOrDefault(cellKey(centerCellX + dx, centerCellZ + dz), List.of())) {
-                        nearby.add(points.get(index));
+                    for (int index = grid.first(centerCellX + dx, centerCellZ + dz);
+                         index >= 0; index = grid.next(index)) {
+                        BlockPoint point = points.get(index);
+                        if (distanceSquared(center, point) <= radiusSquared + EPSILON) {
+                            members.add(point);
+                        }
                     }
                 }
             }
-            List<BlockPoint> members = nearby.stream()
-                    .filter(point -> distanceSquared(center, point) <= radiusSquared + EPSILON)
-                    .sorted()
-                    .toList();
+            members.sort(BlockPoint::compareTo);
             if (members.size() < minimum) {
                 continue;
             }
@@ -70,10 +71,6 @@ public final class CircleClusters {
                         .thenComparingLong(cluster -> cluster.center().roundedX())
                         .thenComparingLong(cluster -> cluster.center().roundedZ()))
                 .toList();
-    }
-
-    private static long cellKey(int x, int z) {
-        return ((long) x << 32) ^ (z & 0xffff_ffffL);
     }
 
     private static void addIntersections(BlockPoint a, BlockPoint b, double radius,

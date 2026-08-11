@@ -1,6 +1,13 @@
 plugins {
-    id 'fabric-loom' version '1.10-SNAPSHOT'
+    id 'fabric-loom' version '1.17.17'
+    id 'application'
     id 'maven-publish'
+    // Standalone CLI fat JAR (independent of the loom mod jar path).
+    id 'com.gradleup.shadow' version '9.6.1'
+}
+
+application {
+    mainClass = 'cn.trialfinder.cli.TrialFinderCLI'
 }
 
 version = project.mod_version
@@ -22,14 +29,55 @@ repositories {
     mavenCentral()
 }
 
+// Standalone CLI runtime classpath. The CLI (cn.trialfinder.cli + sim/accel/cuda) is a pure-Java
+// reimplementation of the trial-chamber generator that reads its datapack resources (NBT/JSON)
+// from the project classpath, so it deliberately does NOT include Minecraft or Fabric. The fat jar
+// is assembled from this configuration only (see shadowJar below).
+configurations {
+    cliRuntime
+}
+
 dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
-    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+    mappings loom.officialMojangMappings()
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
+    // cn.trialfinder.sim reads the datapack pool JSONs via Gson. Minecraft bundles Gson at
+    // runtime, so this is an explicit compile/test classpath dependency (not remapped/bundled).
+    implementation 'com.google.code.gson:gson:2.13.2'
+
+    // CLI: picocli argument parsing.
+    implementation 'info.picocli:picocli:4.7.5'
+
+    // CUDA bridge: JCuda driver API (kernel launch, memory) + JNA for NVRTC (runtime .cu->PTX
+    // compilation). JCuda's bundled JNvrtc JNI is built for a specific CUDA minor and does not
+    // load against the installed CUDA 13.3 nvrtc, so we call the nvrtc64_*_0.dll C API via JNA.
+    // The main jcuda jar transitively pulls the platform aggregator (jcuda-natives) whose
+    // classifier is a Maven property that does not resolve in Gradle, so it is excluded and the
+    // windows-x86_64 natives are added directly. Requires the CUDA driver on PATH at runtime.
+    implementation('org.jcuda:jcuda:12.6.0') {
+        exclude group: 'org.jcuda', module: 'jcuda-natives'
+    }
+    implementation('org.jcuda:jcuda-natives:12.6.0:windows-x86_64') {
+        transitive = false
+    }
+    implementation 'net.java.dev.jna:jna:5.14.0'
+
+    // Mirror of the runtime deps above, for the standalone CLI fat jar (no Minecraft/Fabric).
+    cliRuntime 'com.google.code.gson:gson:2.13.2'
+    cliRuntime 'info.picocli:picocli:4.7.5'
+    cliRuntime('org.jcuda:jcuda:12.6.0') {
+        exclude group: 'org.jcuda', module: 'jcuda-natives'
+    }
+    cliRuntime('org.jcuda:jcuda-natives:12.6.0:windows-x86_64') {
+        transitive = false
+    }
+    cliRuntime 'net.java.dev.jna:jna:5.14.0'
+
     testImplementation platform('org.junit:junit-bom:5.11.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
 processResources {
@@ -51,4 +99,195 @@ java {
 test {
     useJUnitPlatform()
     maxParallelForks = 1
+}
+
+// Standalone CLI fat JAR: bundles the project classes/resources + cliRuntime deps only.
+// This is a separate artifact from the loom mod jar (remapJar) and is intentionally NOT remapped.
+shadowJar {
+    archiveBaseName = 'trialfinder'
+    archiveVersion = project.version
+    archiveClassifier = ''
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    from sourceSets.main.output
+    configurations = [project.configurations.cliRuntime]
+
+    // Signature / module descriptor files from bundled dependency jars are not needed.
+    exclude('META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', 'META-INF/MANIFEST.MF')
+    exclude('module-info.class', 'META-INF/versions/**/module-info.class')
+
+    // Mod-only classes that reference Minecraft — never loaded by the CLI.
+    exclude('cn/trialfinder/mixin/**')
+    exclude('cn/trialfinder/world/**')
+    exclude('cn/trialfinder/TrialSpawnerFinderMod*.class')
+    exclude('cn/trialfinder/search/FinderSearch*.class')
+
+    manifest {
+        attributes 'Main-Class': 'cn.trialfinder.cli.TrialFinderCLI',
+                   'Implementation-Title': 'TrialSpawnerFinder',
+                   'Implementation-Version': project.version
+    }
+}
+
+// Optional: pre-compile the CUDA kernels to PTX with nvcc into build/cuda. The runtime uses
+// NVRTC + ptxas (via the CUDA driver) so this is not required; it fails gracefully when nvcc or
+// an MSVC host compiler is unavailable.
+def cudaToolkit = System.getenv('CUDA_PATH') ?: 'C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.3'
+tasks.register('compileCuda') {
+    group = 'build'
+    description = 'Compiles src/main/cuda/*.cu to build/cuda/*.ptx with nvcc (optional).'
+    doLast {
+        def nvcc = file("${cudaToolkit}/bin/nvcc.exe")
+        if (!nvcc.exists()) {
+            logger.warn('nvcc not found; skipping CUDA pre-compilation (runtime NVRTC will be used).')
+            return
+        }
+        def outDir = file("build/cuda")
+        outDir.mkdirs()
+        fileTree('src/main/cuda').matching { include '*.cu' }.each { cu ->
+            def ptx = new File(outDir, cu.name.replace('.cu', '.ptx'))
+            def proc = ["${nvcc}", '-arch=compute_89', '-code=compute_89', '-ptx',
+                        '-o', "${ptx}", "${cu}"].execute()
+            def output = proc.text
+            if (proc.waitFor() != 0) {
+                logger.warn("nvcc failed for ${cu.name}: ${output?.trim()}; runtime NVRTC will be used.")
+            } else {
+                logger.lifecycle("Compiled ${cu.name} -> ${ptx}")
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------------------------------------------
+// Precompiled cubin generation (GpuAccelerator loads these from the classpath at runtime).
+//
+// Run standalone: ./gradlew compileCubin   (optional -PcubinArchs=sm_89,sm_86,sm_75)
+// Output: src/main/resources/cuda/trial_finder_<sm>.cubin  (bundled into the fat jar).
+// Requires nvcc (PATH or CUDA_PATH) and, on Windows, an MSVC host compiler (cl.exe). When
+// either is unavailable the task warns and skips; the runtime falls back to NVRTC + ptxas.
+//
+// CUDA 13 removed sm_61 (Pascal); the default list covers the archs CUDA 13 still supports.
+// Pass -PcubinArchs=sm_89,sm_86,sm_75,sm_61 with CUDA <= 12.x to build the full set.
+def cubinArchs = (findProperty('cubinArchs') ?: 'sm_89,sm_86,sm_75')
+        .split(',').collect { it.trim() }.findAll { !it.isEmpty() }
+def cubinDir = file('src/main/resources/cuda')
+def cubinOutputs = cubinArchs.collect { new File(cubinDir, "trial_finder_${it}.cubin") }
+
+tasks.register('compileCubin') {
+    group = 'build'
+    description = 'Compiles src/main/cuda/trial_finder_kernels.cu to cubins in src/main/resources/cuda/ with nvcc (skips when nvcc or a host compiler is unavailable).'
+    inputs.file file('src/main/cuda/trial_finder_kernels.cu')
+    outputs.files(cubinOutputs)
+    doLast {
+        def nvcc = findNvcc()
+        if (nvcc == null) {
+            logger.warn('nvcc not found in PATH/CUDA_PATH; skipping cubin pre-compilation (runtime NVRTC will be used).')
+            return
+        }
+        def hostBin = findHostCompilerBin()
+        if (org.gradle.internal.os.OperatingSystem.current().isWindows() && hostBin == null) {
+            logger.warn('MSVC host compiler (cl.exe) not found; skipping cubin pre-compilation (runtime NVRTC will be used).')
+            return
+        }
+        cubinDir.mkdirs()
+        cubinArchs.each { arch ->
+            def out = new File(cubinDir, "trial_finder_${arch}.cubin")
+            // Note: use string concatenation, not "${arch}" interpolation — a GString element
+            // would break ProcessBuilder's internal String[] coercion.
+            def cmd = [nvcc, '-arch=' + arch, '-cubin', '-o', out.absolutePath,
+                       'src/main/cuda/trial_finder_kernels.cu']
+            def builder = new ProcessBuilder(cmd)
+            builder.directory(projectDir)
+            builder.redirectErrorStream(true)
+            if (hostBin != null) {
+                builder.environment().put('PATH', hostBin + File.pathSeparator + builder.environment().get('PATH'))
+            }
+            def proc = builder.start()
+            def output = proc.text
+            if (proc.waitFor() != 0) {
+                logger.warn("nvcc failed for ${arch} (exit ${proc.exitValue()}): ${output?.trim()}; runtime NVRTC will be used.")
+            } else {
+                logger.lifecycle("Compiled src/main/cuda/trial_finder_kernels.cu -> ${out} (${out.length()} bytes)")
+            }
+        }
+    }
+}
+
+// Locates nvcc: PATH first, then CUDA_PATH/bin, then common default locations.
+def findNvcc() {
+    def pathEnv = System.getenv('PATH') ?: ''
+    for (String dir : pathEnv.split(java.io.File.pathSeparator)) {
+        if (dir == null || dir.isEmpty()) continue
+        for (String name : ['nvcc.exe', 'nvcc']) {
+            def f = new File(dir, name)
+            if (f.isFile()) return f.absolutePath
+        }
+    }
+    def cudaPath = System.getenv('CUDA_PATH')
+    if (cudaPath) {
+        for (String name : ['nvcc.exe', 'nvcc']) {
+            def f = new File(cudaPath, 'bin/' + name)
+            if (f.isFile()) return f.absolutePath
+        }
+    }
+    def winDefault = new File('C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.3/bin/nvcc.exe')
+    if (winDefault.isFile()) return winDefault.absolutePath
+    def unixDefault = new File('/usr/local/cuda/bin/nvcc')
+    if (unixDefault.isFile()) return unixDefault.absolutePath
+    return null
+}
+
+// On Windows nvcc needs the MSVC host compiler (cl.exe) even for -cubin. Resolves its bin dir
+// via vswhere (VS Installer) or falls back to common VS layout. Non-Windows returns null
+// (nvcc uses the system host compiler there).
+def findHostCompilerBin() {
+    if (!org.gradle.internal.os.OperatingSystem.current().isWindows()) return null
+    def pf86 = System.getenv('ProgramFiles(x86)')
+    if (pf86) {
+        def vswhere = new File(pf86 + '/Microsoft Visual Studio/Installer/vswhere.exe')
+        if (vswhere.isFile()) {
+            def proc = [vswhere.absolutePath, '-latest', '-products', '*',
+                        '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
+                        '-property', 'installationPath'].execute()
+            def vs = proc.text.trim()
+            if (proc.waitFor() == 0 && vs) {
+                def msvc = new File(vs, 'VC/Tools/MSVC')
+                if (msvc.isDirectory()) {
+                    def versions = msvc.listFiles().findAll { it.isDirectory() }.sort { a, b -> b.name <=> a.name }
+                    if (versions) {
+                        def bin = new File(versions[0], 'bin/Hostx64/x64')
+                        if (new File(bin, 'cl.exe').isFile()) return bin.absolutePath
+                    }
+                }
+            }
+        }
+    }
+    return null
+}
+
+// Standalone verification: runs cn.trialfinder.sim.* without starting a Minecraft server.
+// Resources are loaded from the classpath (build/resources/main after processResources).
+tasks.register('runStandalone', JavaExec) {
+    group = 'verification'
+    description = 'Runs the standalone sim verification (no Minecraft server).'
+    mainClass = 'cn.trialfinder.test.TestStandalone'
+    classpath = sourceSets.test.runtimeClasspath
+    // The sim package is pure Java; nothing else is needed, but keep this configurable.
+    args = project.hasProperty('seed') ? [project.property('seed').toString()] : []
+}
+
+// Full-pipeline verification: enumerate + generate + density, compared against a run.bat log.
+// Override params via -PverifSeed=... -PverifRadius=... etc.
+tasks.register('runSearchVerification', JavaExec) {
+    group = 'verification'
+    description = 'Runs the full-pipeline sim verification (candidates + density) for seed -9206294873968313284.'
+    mainClass = 'cn.trialfinder.test.SearchVerification'
+    classpath = sourceSets.test.runtimeClasspath
+    def vargs = []
+    if (project.hasProperty('verifSeed')) vargs += ['--seed', project.property('verifSeed')]
+    if (project.hasProperty('verifRadius')) vargs += ['--radius', project.property('verifRadius')]
+    if (project.hasProperty('verifCluster')) vargs += ['--cluster-radius', project.property('verifCluster')]
+    if (project.hasProperty('verifMinStructures')) vargs += ['--min-structures', project.property('verifMinStructures')]
+    if (project.hasProperty('verifMinSpawners')) vargs += ['--min-spawners', project.property('verifMinSpawners')]
+    args = vargs
 }

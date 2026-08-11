@@ -20,10 +20,15 @@ public final class ResultWriter {
     }
 
     public static void write(Path path, List<SearchResult> results) throws IOException {
+        write(path, results, 100);
+    }
+
+    /** Writes results, keeping at most {@code topN} per structure-count group. */
+    public static void write(Path path, List<SearchResult> results, int topN) throws IOException {
         List<SearchResult> sorted = results.stream()
                 .collect(Collectors.groupingBy(SearchResult::structureCount))
                 .values().stream()
-                .flatMap(group -> group.stream().sorted().limit(100))
+                .flatMap(group -> group.stream().sorted().limit(topN))
                 .sorted()
                 .toList();
 

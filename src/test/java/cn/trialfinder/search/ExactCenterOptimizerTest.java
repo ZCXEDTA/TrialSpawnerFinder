@@ -5,7 +5,9 @@ import cn.trialfinder.model.BlockPoint;
 import cn.trialfinder.model.SpawnerPoint;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -28,6 +30,74 @@ class ExactCenterOptimizerTest {
     @Test
     void squareMatchesBruteForceForMultipleStructuresAndSpawners() {
         assertMatchesBruteForce(AreaShape.SQUARE);
+    }
+
+    @Test
+    void squareLargeRadiusUsesBoundedFallback() {
+        // radius 600 with a single spawner at (600,0,0) → grid 1201×1201 cells ≈ 1.44M > the
+        // MAX_SQUARE_DIFFERENCE_CELLS bound, so the row-by-row fallback must produce the answer.
+        ExactCenterOptimizer.CenterScore score = ExactCenterOptimizer.find(
+                AreaShape.SQUARE, 600,
+                List.of(new BlockPoint(0, 0)),
+                List.of(new SpawnerPoint(600, 0, 0)));
+
+        assertEquals(new ExactCenterOptimizer.CenterScore(0, -600, 1), score);
+    }
+
+    @Test
+    void circleLookupMatchesDirectDistanceChecksAcrossRandomInputs() {
+        Random random = new Random(0x5EEDC0DE);
+        for (int iteration = 0; iteration < 100; iteration++) {
+            int radius = 1 + random.nextInt(40);
+            int baseX = random.nextInt(81) - 40;
+            int baseZ = random.nextInt(81) - 40;
+            int spread = radius / 3;
+            List<BlockPoint> structures = new ArrayList<>();
+            for (int i = 0, count = 1 + random.nextInt(5); i < count; i++) {
+                structures.add(new BlockPoint(
+                        baseX + (spread == 0 ? 0 : random.nextInt(spread * 2 + 1) - spread),
+                        baseZ + (spread == 0 ? 0 : random.nextInt(spread * 2 + 1) - spread)));
+            }
+            List<SpawnerPoint> spawners = new ArrayList<>();
+            for (int i = 0, count = random.nextInt(20); i < count; i++) {
+                spawners.add(new SpawnerPoint(
+                        baseX + random.nextInt(radius * 3 + 1) - radius * 3 / 2,
+                        random.nextInt(80) - 40,
+                        baseZ + random.nextInt(radius * 3 + 1) - radius * 3 / 2));
+            }
+
+            assertEquals(referenceFind(AreaShape.CIRCLE, radius, structures, spawners),
+                    ExactCenterOptimizer.find(AreaShape.CIRCLE, radius, structures, spawners),
+                    "iteration " + iteration);
+        }
+    }
+
+    @Test
+    void squareDifferenceGridMatchesDirectChecksAcrossRandomInputs() {
+        Random random = new Random(0x51A7E2026L);
+        for (int iteration = 0; iteration < 200; iteration++) {
+            int radius = 1 + random.nextInt(40);
+            int baseX = random.nextInt(81) - 40;
+            int baseZ = random.nextInt(81) - 40;
+            int spread = radius / 2;
+            List<BlockPoint> structures = new ArrayList<>();
+            for (int i = 0, count = 1 + random.nextInt(5); i < count; i++) {
+                structures.add(new BlockPoint(
+                        baseX + (spread == 0 ? 0 : random.nextInt(spread * 2 + 1) - spread),
+                        baseZ + (spread == 0 ? 0 : random.nextInt(spread * 2 + 1) - spread)));
+            }
+            List<SpawnerPoint> spawners = new ArrayList<>();
+            for (int i = 0, count = random.nextInt(80); i < count; i++) {
+                spawners.add(new SpawnerPoint(
+                        baseX + random.nextInt(radius * 4 + 1) - radius * 2,
+                        random.nextInt(80) - 40,
+                        baseZ + random.nextInt(radius * 4 + 1) - radius * 2));
+            }
+
+            assertEquals(referenceFind(AreaShape.SQUARE, radius, structures, spawners),
+                    ExactCenterOptimizer.find(AreaShape.SQUARE, radius, structures, spawners),
+                    "iteration " + iteration);
+        }
     }
 
     private static void assertMatchesBruteForce(AreaShape shape) {
@@ -54,5 +124,31 @@ class ExactCenterOptimizerTest {
         }
 
         assertEquals(expected, ExactCenterOptimizer.find(shape, radius, structures, spawners));
+    }
+
+    /** Brute-force reference: scan every integer centre in the legal box. */
+    private static ExactCenterOptimizer.CenterScore referenceFind(
+            AreaShape shape, int radius, List<BlockPoint> structures,
+            List<SpawnerPoint> spawners) {
+        int minX = structures.stream().mapToInt(BlockPoint::x).min().orElseThrow() - radius;
+        int maxX = structures.stream().mapToInt(BlockPoint::x).max().orElseThrow() + radius;
+        int minZ = structures.stream().mapToInt(BlockPoint::z).min().orElseThrow() - radius;
+        int maxZ = structures.stream().mapToInt(BlockPoint::z).max().orElseThrow() + radius;
+        ExactCenterOptimizer.CenterScore best = null;
+        for (int z = minZ; z <= maxZ; z++) {
+            for (int x = minX; x <= maxX; x++) {
+                int centerX = x;
+                int centerZ = z;
+                if (!structures.stream().allMatch(point -> shape.contains(
+                        centerX, centerZ, point.x(), point.z(), radius))) continue;
+                int count = (int) spawners.stream().filter(point -> shape.contains(
+                        centerX, centerZ, point.x(), point.z(), radius)).count();
+                ExactCenterOptimizer.CenterScore candidate =
+                        new ExactCenterOptimizer.CenterScore(x, z, count);
+                if (best == null || candidate.compareTo(best) < 0) best = candidate;
+            }
+        }
+        if (best == null) throw new IllegalStateException("reference has no legal center");
+        return best;
     }
 }
