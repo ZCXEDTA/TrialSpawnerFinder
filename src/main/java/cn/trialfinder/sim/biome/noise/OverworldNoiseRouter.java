@@ -14,12 +14,13 @@ import cn.trialfinder.sim.random.RandomSource;
  *   <li><b>continentalness / erosion / weirdness / depth</b> in the game are
  *       {@code DensityFunctions.spline(...)} built from the large/regular noise pair via the
  *       {@code TerrainProvider} spline tables (overworldOffset / overworldFactor /
- *       overworldJaggedness). Those tables are a large data set not yet extracted, so these four
- *       dimensions currently use the raw (shifted) regular noise as a deterministic stand-in.</li>
+ *       overworldJaggedness). Those tables are not ported; these four dimensions use the raw
+ *       (shifted) regular noise as a deterministic stand-in.</li>
  * </ul>
  *
- * <p>Consequently {@link #isComplete()} is {@code false} until the spline tables are wired; the
- * {@code BiomeChecker} keeps its guard and does not silently filter on approximate values.
+ * <p>With {@code includeApproxSplines=true} the router is usable for the approximate biome check
+ * ({@link #isComplete()} true); a fully exact router requires porting the TerrainProvider spline
+ * tables.
  */
 public final class OverworldNoiseRouter {
 

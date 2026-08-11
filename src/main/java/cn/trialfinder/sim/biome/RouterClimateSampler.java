@@ -6,10 +6,9 @@ import cn.trialfinder.sim.biome.noise.OverworldNoiseRouter;
  * A {@link ClimateSampler} backed by the ported {@link OverworldNoiseRouter}.
  *
  * <p>The game samples the climate router at the chunk's start block position with y = 0 (the
- * surface climate slice). Because the router's four spline dimensions (continentalness / erosion /
- * depth / weirdness) are not yet exact, {@link #isAvailable()} reflects the router's
- * {@link OverworldNoiseRouter#isComplete()}, which is currently {@code false} — so
- * {@link BiomeChecker} will not silently filter on approximate values.
+ * surface climate slice). The router's four spline dimensions (continentalness / erosion / depth /
+ * weirdness) use deterministic shifted-noise stand-ins (approximate); {@link #isAvailable()}
+ * reflects {@link OverworldNoiseRouter#isComplete()}.
  */
 public final class RouterClimateSampler implements ClimateSampler {
 

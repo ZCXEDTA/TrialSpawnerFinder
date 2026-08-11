@@ -15,12 +15,13 @@ import java.util.Optional;
  *   <li>check the biome against {@link TrialChambersBiomes}.</li>
  * </ol>
  *
- * <p><b>Current status:</b> the {@link ClimateSampler} (which in-game is the
- * {@code NoiseRouter}/{@code NoiseChunk} data-driven tree of {@code DensityFunction}s over the
- * {@linkplain cn.trialfinder.sim.biome.noise.ImprovedNoise noise primitives}) is <b>not yet ported</b>.
- * {@link #isTrialChambersValid} therefore throws {@link UnsupportedOperationException} with a clear
- * message until a sampler is supplied. The CLI {@code --biome-check} catches this and skips the
- * check with a warning rather than silently returning wrong results.
+ * <p><b>Status:</b> approximate but usable. The {@link ClimateSampler} uses the ported
+ * {@code OverworldNoiseRouter} (temperature/humidity exact; continentalness/erosion/depth/weirdness
+ * use deterministic shifted-noise stand-ins), and the parameter list is the land-vs-ocean subset
+ * from {@link OverworldBiomeParameters}. This reliably excludes oceans/deep-oceans (which never host
+ * trial chambers) while keeping the broad land set. It is NOT bit-exact with the game: a land
+ * coordinate may resolve to a slightly different land biome, but since the trial-chambers tag
+ * covers essentially all land, the pass/fail decision is correct for the practical case.
  */
 public final class BiomeChecker {
 

@@ -128,8 +128,8 @@ public final class TrialFinderCLI implements Callable<Integer> {
     boolean quiet;
 
     @Option(names = "--biome-check", defaultValue = "false",
-            description = "Filter candidates by biome (#has_structure/trial_chambers). Note: requires the "
-                    + "noise-router climate sampler, which is not yet ported — currently warns and skips.")
+            description = "Filter candidates by biome (#has_structure/trial_chambers). Approximate: "
+                    + "excludes oceans/deep-oceans, keeps the broad land set.")
     boolean biomeCheck;
 
     @Option(names = "--cache-dir", defaultValue = "./cache",

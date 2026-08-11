@@ -62,7 +62,6 @@ public final class GpuAccelerator implements Accelerator {
     private final CUfunction fScatter;
     private final CUfunction fCount;
     private final CUfunction fGridAggregate;
-    private final CUfunction fGridCount;
     private final CUfunction fGridCollect;
     private final String deviceName;
     private final int deviceMajor;
@@ -94,7 +93,7 @@ public final class GpuAccelerator implements Accelerator {
     private GpuAccelerator(CUcontext context, CUmodule module,
                            CUfunction fGenerateChunks, CUfunction fCellCount,
                            CUfunction fScatter, CUfunction fCount, CUfunction fGridAggregate,
-                           CUfunction fGridCount, CUfunction fGridCollect,
+                           CUfunction fGridCollect,
                            String deviceName, int deviceMajor, int deviceMinor, String cubinArch) {
         this.context = context;
         this.module = module;
@@ -103,7 +102,6 @@ public final class GpuAccelerator implements Accelerator {
         this.fScatter = fScatter;
         this.fCount = fCount;
         this.fGridAggregate = fGridAggregate;
-        this.fGridCount = fGridCount;
         this.fGridCollect = fGridCollect;
         this.deviceName = deviceName;
         this.deviceMajor = deviceMajor;
@@ -161,13 +159,11 @@ public final class GpuAccelerator implements Accelerator {
             cuModuleGetFunction(fB3, module, "densityCount");
             CUfunction fGrid = new CUfunction();
             cuModuleGetFunction(fGrid, module, "gridAggregateKernel");
-            CUfunction fGridCount = new CUfunction();
-            cuModuleGetFunction(fGridCount, module, "generateChunksGridCount");
             CUfunction fGridCollect = new CUfunction();
             cuModuleGetFunction(fGridCollect, module, "generateChunksGridCollect");
             System.out.printf("[timing] GpuAccelerator.create total   %.1f ms%n", (System.nanoTime() - t0) / 1e6);
             return new GpuAccelerator(context, module, fA, fB1, fB2, fB3, fGrid,
-                    fGridCount, fGridCollect, name, major[0], minor[0], cubinArch);
+                    fGridCollect, name, major[0], minor[0], cubinArch);
         } catch (Throwable t) {
             cuCtxDestroy(context);
             if (t instanceof RuntimeException re) {

@@ -83,7 +83,7 @@ public final class QueryCommand implements Callable<Integer> {
             description = "Enable the on-disk B-flow chamber cache (default: disabled)")
     boolean cacheEnabled;
 
-    @Option(names = "--threads", defaultValue = "4", description = "CPU threads (currently unused by the per-point loop)")
+    @Option(names = "--threads", defaultValue = "4", description = "CPU threads (reserved; the per-point loop is currently sequential)")
     int threads;
 
     @Option(names = "--no-gpu", defaultValue = "false", description = "Force the pure-CPU path")

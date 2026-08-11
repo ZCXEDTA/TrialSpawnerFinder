@@ -91,46 +91,8 @@ extern "C" __global__ void generateChunksKernel(
     }
 }
 
-// GPU-direct grid prefilter pass 1: enumerate candidate chambers and count them per grid cell.
-// No host round-trip of the candidate list — the only output is the per-cell count, so a huge
-// search never constructs millions of BlockPoint objects in Java.
-extern "C" __global__ void generateChunksGridCount(
-        const long long seed,
-        const int minRegionX, const int minRegionZ, const int rxCount,
-        const long long globalStart, const long long globalEnd,
-        const int minX, const int maxX, const int minZ, const int maxZ,
-        const int circleFilter, const int centerX, const int centerZ, const long long radiusSq,
-        const int gridMinX, const int gridMinZ, const int gridDimX, const int gridDimZ,
-        const int gridSize,
-        int* __restrict__ cellCount) {
-    int idx = (int)(blockIdx.x * blockDim.x + threadIdx.x);
-    int iStart = (int)globalStart; int iEnd = (int)globalEnd;
-    for (int i = iStart + idx; i < iEnd; i += (int)(gridDim.x * blockDim.x)) {
-        int rx = minRegionX + (i % rxCount);
-        int rz = minRegionZ + (i / rxCount);
-        unsigned long long m = (unsigned long long)rx * 341873128712ULL
-                + (unsigned long long)rz * 132897987541ULL
-                + (unsigned long long)seed + 94251327ULL;
-        unsigned long long s = (m ^ MULT) & MASK48;
-        int cx = rx * 34 + lcgNextInt(&s, 22);
-        int cz = rz * 34 + lcgNextInt(&s, 22);
-        int bx = cx * 16 + 8;
-        int bz = cz * 16 + 8;
-        if (bx < minX || bx > maxX || bz < minZ || bz > maxZ) continue;
-        if (circleFilter) {
-            long long dx = (long long)bx - centerX;
-            long long dz = (long long)bz - centerZ;
-            if (dx * dx + dz * dz > radiusSq) continue;
-        }
-        int gx = (bx - gridMinX) / gridSize;
-        int gz = (bz - gridMinZ) / gridSize;
-        if (gx < 0 || gz < 0 || gx >= gridDimX || gz >= gridDimZ) continue;
-        atomicAdd(&cellCount[gz * gridDimX + gx], 1);
-    }
-}
-
-// GPU-direct grid prefilter pass 2: enumerate again and emit only candidates that fall in a
-// selected (top-K) cell. Output is the small retained set, so host object construction is bounded.
+// GPU-direct grid prefilter: enumerate again and emit only candidates that fall in a selected
+// (top-K) cell. Output is the small retained set, so host object construction is bounded.
 extern "C" __global__ void generateChunksGridCollect(
         const long long seed,
         const int minRegionX, const int minRegionZ, const int rxCount,
