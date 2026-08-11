@@ -17,7 +17,9 @@
 .\run-cli.bat --seed 188188 --search-radius 10000
 ```
 示例:
+```bash
 .\run-cli.bat --seed -6523988883445283364 --search-radius 300000 --cluster-radius 256 --min-structures 2 --min-spawners 40 --threads 14
+```
 --cluster-radius建议根据情况取从模拟距离到256之间的 128推荐查大范围二联 256查三联
 --min-structures 初筛相连密室数量 根据半径调整
 --min-spawners 最低笼子数量,建议为密室数量*20
