@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <pre>
  *   cluster-radius = max(64, min(256, searchRadius / 200))
  *   grid-size      = 2 * cluster-radius
- *   top-k          = max(20, min(200, searchRadius / 1000))
+ *   top-k          = max(50, min(5000, searchRadius / 100))
  * </pre>
  * Explicit CLI values, {@code --no-auto-tune} and {@code --full-world} must be respected.
  */
@@ -34,22 +34,29 @@ class AutoTuneTest {
         TrialFinderCLI cli = parseAndTune("--seed", "188188", "--search-radius", "100000");
         assertEquals(256, cli.clusterRadius, "100000/200 = 500 -> clamped to 256");
         assertEquals(512, cli.gridSize, "grid = 2 * cluster-radius");
-        assertEquals(100, cli.topK, "100000/1000 = 100");
+        assertEquals(1000, cli.topK, "100000/100 = 1000");
     }
 
     @Test
-    void tunesSmallRadiusToMinimums() throws Exception {
+    void tunesSmallRadius() throws Exception {
         TrialFinderCLI cli = parseAndTune("--seed", "188188", "--search-radius", "10000");
         assertEquals(64, cli.clusterRadius, "10000/200 = 50 -> clamped to 64");
         assertEquals(128, cli.gridSize);
-        assertEquals(20, cli.topK, "10000/1000 = 10 -> clamped to 20");
+        assertEquals(100, cli.topK, "10000/100 = 100");
+    }
+
+    @Test
+    void tunesTinyRadiusToMinimumTopK() throws Exception {
+        // 3000/100 = 30 -> clamped to the 50 floor.
+        TrialFinderCLI cli = parseAndTune("--seed", "188188", "--search-radius", "3000");
+        assertEquals(50, cli.topK, "3000/100 = 30 -> clamped to 50");
     }
 
     @Test
     void tunesLargeRadiusToMaximums() throws Exception {
         TrialFinderCLI cli = parseAndTune("--seed", "188188", "--search-radius", "1000000");
         assertEquals(256, cli.clusterRadius, "1e6/200 = 5000 -> clamped to 256");
-        assertEquals(200, cli.topK, "1e6/1000 = 1000 -> clamped to 200");
+        assertEquals(5000, cli.topK, "1e6/100 = 10000 -> clamped to 5000");
     }
 
     @Test
@@ -59,7 +66,7 @@ class AutoTuneTest {
         assertEquals(300, cli.clusterRadius, "explicit cluster-radius must not be overridden");
         // grid/top-k still auto-tuned.
         assertEquals(600, cli.gridSize);
-        assertEquals(100, cli.topK);
+        assertEquals(1000, cli.topK);
     }
 
     @Test

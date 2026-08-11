@@ -83,12 +83,13 @@ B 流（Jigsaw 拼接）的实测优化效果（种子 188188，半径 10000，`
 ```text
 cluster-radius = max(64, min(256, searchRadius / 200))
 grid-size      = 2 × cluster-radius
-top-k          = max(20, min(200, searchRadius / 1000))
+top-k          = max(50, min(5000, searchRadius / 100))
 ```
 
-例如：半径 100,000 → `cluster-radius 256`、`grid-size 512`、`top-k 100`；半径 10,000 → `cluster-radius 64`、`grid-size 128`、`top-k 20`。
+例如：半径 100,000 → `cluster-radius 256`、`grid-size 512`、`top-k 1000`；半径 10,000 → `cluster-radius 64`、`grid-size 128`、`top-k 100`。
 
 - `--debug` 下输出 `[auto-tune] ...` 显示每次自动计算；
+- **top-K 影响召回**：top-K 越大，预筛保留的 cell/候选越多、漏得越少（实测 100k 半径 topK 200→1000 时结果 287→528，+84%），但 B 流时间线性增长。想提高召回就加大 `--top-k`；想更快就减小。
 - 显式指定的参数**不被覆盖**；`--no-auto-tune`（或 `--auto-tune=false`）完全关闭自动调参，保留默认值；
 - `--full-world` 下跳过自动调参（`search-radius` 被忽略，top-k 请显式指定，如 `--top-k 100000`）；
 - **超大半径自动切 grid**：`search-radius > 100,000` 且未显式指定 `--prefilter-mode` 时自动切换到 `grid`（GPU 网格预筛），避免 cluster 模式对百万级候选的密度峰值聚类卡死。
