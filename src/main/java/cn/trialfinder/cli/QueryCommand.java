@@ -284,7 +284,7 @@ public final class QueryCommand implements Callable<Integer> {
                         .map(e -> e.getValue() + "× " + e.getKey())
                         .collect(java.util.stream.Collectors.joining(", ")));
 
-                // Detail rows: each spawner with its position + loot (entity/weight/interval).
+                // Detail rows: each spawner with its position + parameters (entity/weight/interval).
                 String[] detailHeaders = {"刷怪笼X", "Y", "Z", "怪物", "实体", "权重",
                         "间隔tick", "同时数", "同时+玩家", "总数", "总数+玩家"};
                 int[] dw = new int[detailHeaders.length];
