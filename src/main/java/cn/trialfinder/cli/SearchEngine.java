@@ -390,14 +390,20 @@ public final class SearchEngine {
                 circle, radiusSq);
         Set<BlockPoint> merged = new java.util.HashSet<>();
         int tilesProcessed = 0;
-        int totalTilesX = (int) ((span + gridTileSize - 1) / gridTileSize);
+        // Overlapping tiles: a dense cluster straddling a tile boundary would otherwise be split —
+        // each tile keeps its own top-K cells and the boundary-side members can drop out of both.
+        // Halve-step the tile centres so every candidate is inside at least one tile by a margin
+        // larger than any cluster diameter.
+        long tileStep = Math.max(1, gridTileSize / 2);
+        long overlap = gridTileSize - tileStep;
+        int totalTilesX = (int) ((span + overlap) / tileStep);
         int totalTiles = totalTilesX * totalTilesX;
         long tiledStart = System.nanoTime();
         long lastReportNanos = 0;
         boolean gpuDirect = acc instanceof cn.trialfinder.cuda.GpuAccelerator;
-        for (long tileMinX = searchMinX; tileMinX <= searchMaxX; tileMinX += gridTileSize) {
+        for (long tileMinX = searchMinX; tileMinX <= searchMaxX; tileMinX += tileStep) {
             long tileMaxX = Math.min(searchMaxX, tileMinX + gridTileSize - 1);
-            for (long tileMinZ = searchMinZ; tileMinZ <= searchMaxZ; tileMinZ += gridTileSize) {
+            for (long tileMinZ = searchMinZ; tileMinZ <= searchMaxZ; tileMinZ += tileStep) {
                 long tileMaxZ = Math.min(searchMaxZ, tileMinZ + gridTileSize - 1);
                 List<BlockPoint> tileRetained;
                 if (gpuDirect) {
@@ -446,14 +452,14 @@ public final class SearchEngine {
         progress.stageDone((int) Math.min(Integer.MAX_VALUE, candidateCount));
 
         progress.setStage(ProgressRenderer.STAGE_DENSITY);
-        // Second global pass over the merged per-tile top-K candidates: keeps the global top-K cells.
-        List<BlockPoint> candidates = new ArrayList<>(merged);
-        List<BlockPoint> retained = acc.gridAggregateAndSelect(
-                candidates, opts.clusterRadius(), opts.effectiveGridSize(), opts.topK());
+        // Each tile already kept its top-K cells; the overlapping-tile union (HashSet dedup) is the
+        // retained set. No second global truncation — that would drop cluster members that were
+        // only present in one tile's top-K, hurting recall.
+        List<BlockPoint> retained = new ArrayList<>(merged);
         int prunedCount = (int) Math.min(Integer.MAX_VALUE, candidateCount - retained.size());
         if (opts.debug()) {
-            out.printf("[grid prefilter] candidates=%d retained=%d (top %d cells, grid %d)%n",
-                    candidateCount, retained.size(), opts.topK(), opts.effectiveGridSize());
+            out.printf("[grid prefilter] candidates=%d retained=%d (tile-union, top %d cells/tile)%n",
+                    candidateCount, retained.size(), opts.topK());
         }
 
         // Wrap retained candidates into a single coarse cluster; generateClusters performs the
