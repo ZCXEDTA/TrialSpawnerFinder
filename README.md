@@ -6,7 +6,7 @@
 
 - **版本**：1.0.0
 - **JDK 21 必需**
-- **GPU**：可选。只需 NVIDIA 驱动（内核已预编译为 cubin 打包进 JAR，**无需 CUDA Toolkit**）；GPU 不可用时自动回退纯 CPU
+- **GPU**：可选。需 NVIDIA 驱动（内核已预编译为 cubin 打包进 JAR，**无需 CUDA Toolkit**）,不支持旧gpu ；GPU 不可用时自动回退纯 CPU
 
 ---
 
@@ -14,7 +14,14 @@
 
 ```bash
 # Windows
-run-cli.bat --seed 188188 --search-radius 10000
+.\run-cli.bat --seed 188188 --search-radius 10000
+示例:
+.\run-cli.bat --seed -6523988883445283364 --search-radius 300000 --cluster-radius 256 --min-structures 2 --min-spawners 40 --threads 14
+--cluster-radius建议根据情况取从模拟距离到256之间的 128推荐查大范围二联 256查三联
+--min-structures 初筛相连密室数量 根据半径调整
+--min-spawners 最低笼子数量,建议为密室数量*20
+--threads  调用CPU逻辑核心数
+--top-k 粗筛 top-K 聚类数上限（0=关闭全量 B 流，超大半径极慢）。越大召回越高/精度越高但越慢,越小速度越快/精度损失越大
 
 # Linux / macOS
 ./run-cli.sh --seed 188188 --search-radius 10000
@@ -256,8 +263,6 @@ run-cli.bat query --seed 188188 --file results-<时间戳>.csv --radius 1000 --o
 run-cli.bat --seed -6523988883445283364 --search-radius 300000 --cluster-radius 256 --min-structures 3 --min-spawners 70 --threads 14 --debug
 ```
 
-**实测**（RTX 4060 + 14 线程）：**约 28 秒**，95.5 万候选 → grid 预筛 9096 → 10 个结果。
-
 **逐参数解析**：
 
 | 参数 | 值 | 含义 | 为什么这么设 |
@@ -266,7 +271,7 @@ run-cli.bat --seed -6523988883445283364 --search-radius 300000 --cluster-radius 
 | `--search-radius` | `300000` | 以 (0,0) 为圆心的搜索半径（方块），即 30 万格 | 覆盖较大范围；>10 万格自动切 GPU 网格预筛，速度可控 |
 | `--cluster-radius` | `256` | 密度聚类半径（方块） | 密室间距约 544 块，256 格能聚起 2-3 个相邻密室。**不要 < 544 的一半**，否则聚不出聚类 |
 | `--min-structures` | `3` | 一个聚类内至少 3 个密室 | 与 `cluster-radius 256` 匹配（256 格内三联密室较常见；若用 128 格建议降为 2） |
-| `--min-spawners` | `70` | 密度圆内至少 70 个刷怪笼 | 较高阈值 → 只保留"真正密集"的区域，结果少而精（实测 10 个） |
+| `--min-spawners` | `60` | 密度圆内至少 70 个刷怪笼 | 较高阈值 → 只保留"真正密集"的区域，结果少而精（实测 10 个） |
 | `--threads` | `14` | B 流（Jigsaw 拼接）CPU 线程数 | 接近物理核心数；不要超过逻辑核心数 |
 | `--debug` | — | 打印配置摘要、进度、耗时 | 首次运行建议开启，能看到 auto-tune 的实际取值 |
 
@@ -324,4 +329,4 @@ cd TrialSpawnerFinder
 - `--biome-check` 为近似（见上）
 - `--prefilter-mode grid` 是近似模式（按网格总密度而非真实刷怪笼排序）
 - GPU 原生库仅随附 Windows x86_64；Linux/macOS 用 `--no-gpu`
-- `--search-radius 10,000,000+` 候选达十亿级，即使自动分片也需数分钟到数小时；建议用 `--full-world --top-k` 或减小半径
+- `--search-radius 10,000,000+` 即使自动分片也需数分钟到数小时；建议用 `--full-world --top-k` 或减小半径
