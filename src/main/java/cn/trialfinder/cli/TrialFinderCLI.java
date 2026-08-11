@@ -159,8 +159,11 @@ public final class TrialFinderCLI implements Callable<Integer> {
             description = "Disable automatic parameter tuning (keeps the explicit/default values)")
     boolean noAutoTune;
 
-    /** True when {@code finder.properties} supplied cluster-radius (so auto-tune must not override it). */
+    /** True when {@code finder.properties} supplied a tuning-relevant value (so auto-tune must not override it). */
     private boolean clusterRadiusFromProperties;
+    private boolean gridSizeFromProperties;
+    private boolean topKFromProperties;
+    private boolean prefilterModeFromProperties;
 
     private ProgressRenderer progress = new ProgressRenderer();
 
@@ -577,8 +580,10 @@ public final class TrialFinderCLI implements Callable<Integer> {
 
         // Very large search radii make the cluster-mode density-peak KD-tree clustering prohibitive
         // (millions of candidates). Auto-switch to the GPU grid prefilter for throughput, unless the
-        // user explicitly chose a prefilter mode.
-        if (this.searchRadius > 100_000 && !parsed.hasMatchedOption("--prefilter-mode")) {
+        // user explicitly chose a prefilter mode (CLI or finder.properties).
+        if (this.searchRadius > 100_000
+                && !parsed.hasMatchedOption("--prefilter-mode")
+                && !this.prefilterModeFromProperties) {
             if (this.debug) {
                 System.out.printf("[auto-tune] search radius %,d is large -> prefilter-mode: cluster -> grid%n",
                         this.searchRadius);
@@ -599,14 +604,14 @@ public final class TrialFinderCLI implements Callable<Integer> {
                 this.clusterRadius = tuned;
             }
         }
-        if (!parsed.hasMatchedOption("--grid-size") && this.gridSize == 0) {
+        if (!parsed.hasMatchedOption("--grid-size") && !this.gridSizeFromProperties && this.gridSize == 0) {
             int tuned = 2 * this.clusterRadius;
             if (this.debug) {
                 System.out.printf("[auto-tune] grid-size: %d -> %d%n", this.gridSize, tuned);
             }
             this.gridSize = tuned;
         }
-        if (!parsed.hasMatchedOption("--top-k")) {
+        if (!parsed.hasMatchedOption("--top-k") && !this.topKFromProperties) {
             // Higher top-K = lower prefilter loss (more cells/candidates survive), at the cost of
             // more B-flow work. Scales with radius: bigger searches keep a larger share of cells.
             int tuned = Math.max(50, Math.min(5000, this.searchRadius / 100));
@@ -655,6 +660,52 @@ public final class TrialFinderCLI implements Callable<Integer> {
                 v -> this.threads = Integer.parseInt(v));
         applyIfUnset(parsed, properties, "scan-shard-size-blocks", "--tile-size",
                 v -> this.tileSize = Integer.parseInt(v));
+        applyIfUnset(parsed, properties, "biome-check", "--biome-check",
+                v -> this.biomeCheck = Boolean.parseBoolean(v));
+
+        // Full-world / top-K / clustering / prefilter.
+        applyIfUnset(parsed, properties, "tile-overlap-blocks", "--tile-overlap",
+                v -> this.tileOverlap = Integer.parseInt(v));
+        applyIfUnset(parsed, properties, "top-k", "--top-k",
+                v -> {
+                    this.topK = Integer.parseInt(v);
+                    this.topKFromProperties = true;
+                });
+        applyIfUnset(parsed, properties, "cluster-method", "--cluster-method",
+                v -> this.clusterMethod = v);
+        applyIfUnset(parsed, properties, "max-cluster-size", "--max-cluster-size",
+                v -> this.maxClusterSize = Integer.parseInt(v));
+        applyIfUnset(parsed, properties, "prefilter-mode", "--prefilter-mode",
+                v -> {
+                    this.prefilterMode = v;
+                    this.prefilterModeFromProperties = true;
+                });
+        applyIfUnset(parsed, properties, "grid-size", "--grid-size",
+                v -> {
+                    this.gridSize = Integer.parseInt(v);
+                    this.gridSizeFromProperties = true;
+                });
+        applyIfUnset(parsed, properties, "min-candidates-per-tile", "--min-candidates-per-tile",
+                v -> this.minCandidatesPerTile = Integer.parseInt(v));
+        applyIfUnset(parsed, properties, "jigsaw-depth", "--jigsaw-depth",
+                v -> this.jigsawDepth = Integer.parseInt(v));
+
+        // Output / behaviour.
+        applyIfUnset(parsed, properties, "output-prefix", "--output-prefix",
+                v -> this.outputPrefix = v);
+        applyIfUnset(parsed, properties, "debug", "--debug",
+                v -> this.debug = Boolean.parseBoolean(v));
+        applyIfUnset(parsed, properties, "no-gpu", "--no-gpu",
+                v -> this.noGpu = Boolean.parseBoolean(v));
+        applyIfUnset(parsed, properties, "quiet", "--quiet",
+                v -> this.quiet = Boolean.parseBoolean(v));
+        applyIfUnset(parsed, properties, "cache-dir", "--cache-dir",
+                v -> this.cacheDir = v);
+        applyIfUnset(parsed, properties, "cache", "--cache",
+                v -> this.cacheEnabled = Boolean.parseBoolean(v));
+        applyIfUnset(parsed, properties, "no-auto-tune", "--no-auto-tune",
+                v -> this.noAutoTune = Boolean.parseBoolean(v));
+
         System.out.println("[config] loaded defaults from " + file.toAbsolutePath());
     }
 
