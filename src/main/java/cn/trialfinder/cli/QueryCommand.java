@@ -31,8 +31,14 @@ import java.util.concurrent.Callable;
         description = "Query trial-chamber details (spawners + mobs) near given coordinates.")
 public final class QueryCommand implements Callable<Integer> {
 
-    /** One output spawner row. */
-    public record SpawnerOut(int x, int y, int z, String mob) {
+    /** One output spawner row with detailed parameters. */
+    public record SpawnerOut(int x, int y, int z, String mob, String config, String entity,
+                             int weight, int ticksBetweenSpawn, double simultaneousMobs,
+                             double simultaneousMobsPerPlayer, double totalMobs,
+                             double totalMobsPerPlayer) {
+        public SpawnerOut(int x, int y, int z, String mob) {
+            this(x, y, z, mob, null, null, 0, 0, 0.0, 0.0, 0.0, 0.0);
+        }
     }
 
     /** One chamber found near a query point. */
@@ -143,8 +149,20 @@ public final class QueryCommand implements Callable<Integer> {
                 continue;
             }
             List<SpawnerOut> spawners = result.spawnerInfos().stream()
-                    .map(info -> new SpawnerOut(
-                            info.pos().getX(), info.pos().getY(), info.pos().getZ(), info.mob()))
+                    .map(info -> {
+                        SpawnerConfig.Config cfg = SpawnerConfig.load(info.config());
+                        String entity = cfg != null ? cfg.primaryEntity() : null;
+                        int weight = cfg != null && !cfg.potentials().isEmpty()
+                                ? cfg.potentials().get(0).weight() : 0;
+                        int ticks = cfg != null ? cfg.ticksBetweenSpawn() : 0;
+                        double sim = cfg != null ? cfg.simultaneousMobs() : 0.0;
+                        double simPer = cfg != null ? cfg.simultaneousMobsPerPlayer() : 0.0;
+                        double total = cfg != null ? cfg.totalMobs() : 0.0;
+                        double totalPer = cfg != null ? cfg.totalMobsPerPlayer() : 0.0;
+                        return new SpawnerOut(
+                                info.pos().getX(), info.pos().getY(), info.pos().getZ(),
+                                info.mob(), info.config(), entity, weight, ticks, sim, simPer, total, totalPer);
+                    })
                     .toList();
             for (SpawnerOut spawner : spawners) {
                 mobs.add(spawner.mob());
@@ -240,6 +258,7 @@ public final class QueryCommand implements Callable<Integer> {
     }
 
     private void renderTable(List<QueryResult> results) {
+        // Summary per query point.
         String[] headers = {"查询点X", "查询点Z", "密室数", "刷怪笼总数", "怪物类型（去重）"};
         List<String[]> rows = new ArrayList<>(results.size());
         int[] widths = new int[headers.length];
@@ -261,6 +280,50 @@ public final class QueryCommand implements Callable<Integer> {
         for (String[] row : rows) {
             writeTableRow(row, widths);
         }
+
+        // Detailed per-spawner lines.
+        String[] detailHeaders = {"查询点X", "查询点Z", "密室X", "密室Z", "刷怪笼X", "Y", "Z",
+                "怪物", "实体", "权重", "间隔tick", "同时数", "同时+玩家", "总数", "总数+玩家"};
+        int[] dw = new int[detailHeaders.length];
+        for (int i = 0; i < detailHeaders.length; i++) {
+            dw[i] = displayWidth(detailHeaders[i]);
+        }
+        List<String[]> detailRows = new ArrayList<>();
+        for (QueryResult result : results) {
+            for (ChamberOut chamber : result.chambers()) {
+                for (SpawnerOut s : chamber.spawners()) {
+                    String[] row = {
+                            Integer.toString(result.x()), Integer.toString(result.z()),
+                            Integer.toString(chamber.x()), Integer.toString(chamber.z()),
+                            Integer.toString(s.x()), Integer.toString(s.y()), Integer.toString(s.z()),
+                            s.mob(),
+                            s.entity() != null ? s.entity() : "-",
+                            Integer.toString(s.weight()),
+                            Integer.toString(s.ticksBetweenSpawn()),
+                            fmt(s.simultaneousMobs()),
+                            fmt(s.simultaneousMobsPerPlayer()),
+                            fmt(s.totalMobs()),
+                            fmt(s.totalMobsPerPlayer())
+                    };
+                    for (int i = 0; i < row.length; i++) {
+                        dw[i] = Math.max(dw[i], displayWidth(row[i]));
+                    }
+                    detailRows.add(row);
+                }
+            }
+        }
+        if (detailRows.isEmpty()) {
+            return;
+        }
+        System.out.println();
+        writeTableRow(detailHeaders, dw);
+        for (String[] row : detailRows) {
+            writeTableRow(row, dw);
+        }
+    }
+
+    private static String fmt(double v) {
+        return v == Math.rint(v) ? Long.toString((long) v) : Double.toString(v);
     }
 
     private void writeTableRow(String[] values, int[] widths) {
@@ -285,18 +348,23 @@ public final class QueryCommand implements Callable<Integer> {
     }
 
     private void renderCsv(List<QueryResult> results) {
-        System.out.println("查询点X;查询点Z;密室X;密室Z;刷怪笼X;刷怪笼Y;刷怪笼Z;怪物类型");
+        System.out.println("查询点X;查询点Z;密室X;密室Z;刷怪笼X;刷怪笼Y;刷怪笼Z;怪物类型;配置文件;实体;权重;间隔tick;同时数;同时+玩家;总数;总数+玩家");
         for (QueryResult result : results) {
             for (ChamberOut chamber : result.chambers()) {
                 if (chamber.spawners().isEmpty()) {
-                    System.out.printf("%d;%d;%d;%d;;;;%n",
+                    System.out.printf("%d;%d;%d;%d;;;;;;;-;;%n",
                             result.x(), result.z(), chamber.x(), chamber.z());
                     continue;
                 }
                 for (SpawnerOut spawner : chamber.spawners()) {
-                    System.out.printf("%d;%d;%d;%d;%d;%d;%d;%s%n",
+                    System.out.printf("%d;%d;%d;%d;%d;%d;%d;%s;%s;%s;%d;%d;%s;%s;%s;%s%n",
                             result.x(), result.z(), chamber.x(), chamber.z(),
-                            spawner.x(), spawner.y(), spawner.z(), spawner.mob());
+                            spawner.x(), spawner.y(), spawner.z(), spawner.mob(),
+                            spawner.config() != null ? spawner.config() : "-",
+                            spawner.entity() != null ? spawner.entity() : "-",
+                            spawner.weight(), spawner.ticksBetweenSpawn(),
+                            fmt(spawner.simultaneousMobs()), fmt(spawner.simultaneousMobsPerPlayer()),
+                            fmt(spawner.totalMobs()), fmt(spawner.totalMobsPerPlayer()));
                 }
             }
         }

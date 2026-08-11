@@ -26,8 +26,15 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class SpawnerCache {
 
-    /** A single cached spawner: block position plus resolved mob type (e.g. {@code "skeleton"}). */
-    public record SpawnerData(int x, int y, int z, String mob) {
+    /**
+     * A single cached spawner: block position plus resolved mob type (e.g. {@code "skeleton"})
+     * and the trial-spawner config id (e.g. {@code "minecraft:trial_chamber/ranged/skeleton/normal"}).
+     * {@code config} may be {@code null} for cache files written by older builds.
+     */
+    public record SpawnerData(int x, int y, int z, String mob, String config) {
+        public SpawnerData(int x, int y, int z, String mob) {
+            this(x, y, z, mob, null);
+        }
     }
 
     /** JSON file layout — mirrors the on-disk cache file. */

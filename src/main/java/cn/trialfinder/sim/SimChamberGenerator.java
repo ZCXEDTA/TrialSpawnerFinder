@@ -241,8 +241,9 @@ public final class SimChamberGenerator {
 
     /**
      * Collects every trial-spawner block across all assembled pieces, together with its resolved
-     * mob type. The mob is read from the spawner block's NBT {@code normal_config} field, e.g.
-     * {@code minecraft:trial_chamber/ranged/skeleton/normal} → {@code "skeleton"}.
+     * mob type and trial-spawner config id. The mob/config are read from the spawner block's NBT
+     * {@code normal_config} field, e.g. {@code minecraft:trial_chamber/ranged/skeleton/normal}
+     * → mob {@code "skeleton"}, config {@code "minecraft:trial_chamber/ranged/skeleton/normal"}.
      */
     private List<SpawnerInfo> collectSpawnerInfos(JigsawPlacement.JigsawResult result) {
         List<SpawnerInfo> spawners = new ArrayList<>();
@@ -255,7 +256,8 @@ public final class SimChamberGenerator {
                         new StructurePlaceSettings().setRotation(piece.getRotation()),
                         "minecraft:trial_spawner");
                 for (StructureBlockInfo info : infos) {
-                    spawners.add(new SpawnerInfo(info.pos(), extractMob(info.nbt())));
+                    String config = extractConfig(info.nbt());
+                    spawners.add(new SpawnerInfo(info.pos(), extractMobFromConfig(config), config));
                 }
             }
         }
@@ -263,11 +265,19 @@ public final class SimChamberGenerator {
         return spawners;
     }
 
-    private static String extractMob(NbtTag.Compound nbt) {
+    /** Returns the {@code normal_config} id of a spawner block's NBT, or {@code null}. */
+    private static String extractConfig(NbtTag.Compound nbt) {
         if (nbt == null || !nbt.contains("normal_config")) {
+            return null;
+        }
+        return nbt.getString("normal_config");
+    }
+
+    /** Derives the mob name from a config id, e.g. {@code ".../ranged/skeleton/normal"} → {@code "skeleton"}. */
+    static String extractMobFromConfig(String config) {
+        if (config == null || config.isEmpty()) {
             return "unknown";
         }
-        String config = nbt.getString("normal_config");
         String path = config.endsWith("/normal")
                 ? config.substring(0, config.length() - "/normal".length())
                 : config.endsWith("/ominous")
@@ -281,7 +291,7 @@ public final class SimChamberGenerator {
         List<SpawnerCache.SpawnerData> list = new ArrayList<>(infos.size());
         for (SpawnerInfo info : infos) {
             list.add(new SpawnerCache.SpawnerData(
-                    info.pos().getX(), info.pos().getY(), info.pos().getZ(), info.mob()));
+                    info.pos().getX(), info.pos().getY(), info.pos().getZ(), info.mob(), info.config()));
         }
         return list;
     }
@@ -295,8 +305,14 @@ public final class SimChamberGenerator {
                 lookup.lookup(TrialChambersData.spawnerKey("contents/small_melee")).identifier().getPath());
     }
 
-    /** A trial-spawner block within a chamber, with its resolved mob type. */
-    public record SpawnerInfo(BlockPos pos, String mob) {
+    /**
+     * A trial-spawner block within a chamber, with its resolved mob type and trial-spawner config
+     * id (e.g. {@code "minecraft:trial_chamber/ranged/skeleton/normal"}); {@code config} may be null.
+     */
+    public record SpawnerInfo(BlockPos pos, String mob, String config) {
+        public SpawnerInfo(BlockPos pos, String mob) {
+            this(pos, mob, null);
+        }
     }
 
     public record ChamberResult(
@@ -311,7 +327,7 @@ public final class SimChamberGenerator {
          */
         public static ChamberResult fromCached(List<SpawnerCache.SpawnerData> cached) {
             List<SpawnerInfo> infos = cached.stream()
-                    .map(s -> new SpawnerInfo(new BlockPos(s.x(), s.y(), s.z()), s.mob()))
+                    .map(s -> new SpawnerInfo(new BlockPos(s.x(), s.y(), s.z()), s.mob(), s.config()))
                     .toList();
             List<BlockPos> positions = infos.stream().map(SpawnerInfo::pos).toList();
             return new ChamberResult(null, positions, null, infos);
