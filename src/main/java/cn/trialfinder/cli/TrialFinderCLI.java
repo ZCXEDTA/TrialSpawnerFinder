@@ -216,11 +216,12 @@ public final class TrialFinderCLI implements Callable<Integer> {
         if (prefilterMode.equalsIgnoreCase("grid") && topK > 0) {
             System.out.printf("prefilter   : grid (cell %d blocks)%n", opts.effectiveGridSize());
         }
+        cn.trialfinder.sim.biome.BiomeChecker biomeChecker = null;
         if (biomeCheck) {
-            var checker = cn.trialfinder.sim.biome.BiomeCheckerFactory.create();
-            if (!checker.isAvailable()) {
-                System.out.println("[WARN] --biome-check 需要生物群系噪声路由器（NoiseRouter/DensityFunctions 尚未移植），"
-                        + "已跳过该过滤；结果可能包含生物群系无效的密室。");
+            biomeChecker = cn.trialfinder.sim.biome.BiomeCheckerFactory.create();
+            if (!biomeChecker.isAvailable()) {
+                System.out.println("[WARN] --biome-check 生物群系噪声路由器不可用，已跳过过滤。");
+                biomeChecker = null;
             }
         }
 
@@ -239,12 +240,12 @@ public final class TrialFinderCLI implements Callable<Integer> {
             if (fullWorld) {
                 return runFullWorldTopK(acc, opts);
             }
-            return runSingleRegionTopK(acc, opts);
+            return runSingleRegionTopK(acc, opts, biomeChecker);
         }
         if (fullWorld) {
             return runFullWorld(acc, opts);
         }
-        return runSingleRegion(acc, opts);
+        return runSingleRegion(acc, opts, biomeChecker);
     }
 
     // ---------------------------------------------------------------- single region (grid prefilter)
@@ -271,8 +272,9 @@ public final class TrialFinderCLI implements Callable<Integer> {
 
     // ---------------------------------------------------------------- single region
 
-    private Integer runSingleRegion(Accelerator acc, SearchEngine.Options opts) throws IOException {
-        SearchEngine.Result result = SearchEngine.run(opts, acc, System.out, this.progress);
+    private Integer runSingleRegion(Accelerator acc, SearchEngine.Options opts,
+                                    cn.trialfinder.sim.biome.BiomeChecker biomeChecker) throws IOException {
+        SearchEngine.Result result = SearchEngine.run(opts, acc, System.out, this.progress, biomeChecker);
 
         String prefix = outputPrefix != null
                 ? outputPrefix
@@ -293,7 +295,8 @@ public final class TrialFinderCLI implements Callable<Integer> {
 
     // ---------------------------------------------------------------- single region (top-K clusters)
 
-    private Integer runSingleRegionTopK(Accelerator acc, SearchEngine.Options opts) throws IOException {
+    private Integer runSingleRegionTopK(Accelerator acc, SearchEngine.Options opts,
+                                        cn.trialfinder.sim.biome.BiomeChecker biomeChecker) throws IOException {
         SimChamberGenerator generator = newGenerator(opts);
         long radiusSq = (long) opts.searchRadius() * opts.searchRadius();
         SearchRegion region = new SearchRegion(
@@ -314,7 +317,7 @@ public final class TrialFinderCLI implements Callable<Integer> {
                 clusters.size(), retained.size(), topK);
 
         List<cn.trialfinder.model.SearchResult> results =
-                SearchEngine.generateClusters(retained, generator, opts, this.progress);
+                SearchEngine.generateClusters(retained, generator, opts, this.progress, biomeChecker);
 
         String prefix = outputPrefix != null
                 ? outputPrefix

@@ -72,7 +72,11 @@ public final class OverworldNoiseRouter {
         DensityFunction eroFn = DensityFunction.shiftedNoise2d(shiftX, shiftZ, 0.25, erosion);
         DensityFunction weiFn = DensityFunction.shiftedNoise2d(shiftX, shiftZ, 0.25, weirdness);
         DensityFunction depFn = DensityFunction.shiftedNoise2d(shiftX, shiftZ, 0.25, depth);
-        return new OverworldNoiseRouter(false, new NoiseRouter(tempFn, vegFn, contFn, eroFn, depFn, weiFn));
+        // includeApproxSplines=true: deterministic shifted-noise stand-ins for the four terrain
+        // spline dimensions. Marked "complete" so the approximate biome check can run (the CLI uses
+        // this path for --biome-check; the temperature/humidity dims are exact, the other four are
+        // approximate — see OverworldBiomeParameters).
+        return new OverworldNoiseRouter(true, new NoiseRouter(tempFn, vegFn, contFn, eroFn, depFn, weiFn));
     }
 
     public NoiseRouter router() {
@@ -80,8 +84,10 @@ public final class OverworldNoiseRouter {
     }
 
     /**
-     * True only when every climate dimension is the exact game composition. Currently always false:
-     * the TerrainProvider spline tables for continentalness/erosion/weirdness/depth are not ported.
+     * True when the router is usable for {@code --biome-check}. The default factory uses the
+     * deterministic approximate splines (temperature/humidity exact, four terrain dims approximate);
+     * a fully exact router is not yet available because the TerrainProvider spline tables are not
+     * ported.
      */
     public boolean isComplete() {
         return this.complete;

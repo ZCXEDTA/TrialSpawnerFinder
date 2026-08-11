@@ -72,11 +72,30 @@ class BiomeNoiseTest {
     }
 
     @Test
-    void biomeCheckerReportsUnavailableUntilSamplerWired() {
+    void biomeCheckerIsAvailableWithApproximateSplines() {
+        // The default factory now uses the deterministic approximate splines + the land-vs-ocean
+        // parameter subset, so --biome-check is usable (it must not throw).
         BiomeChecker checker = cn.trialfinder.sim.biome.BiomeCheckerFactory.create();
-        assertFalse(checker.isAvailable(), "climate sampler not ported yet");
-        org.junit.jupiter.api.Assertions.assertThrows(UnsupportedOperationException.class,
-                () -> checker.isTrialChambersValid(12345L, 0, 0));
+        assertTrue(checker.isAvailable(), "approximate router + parameter list must be available");
+        // A land candidate near spawn resolves to a biome; the check runs without throwing.
+        checker.isTrialChambersValid(12345L, 0, 0);
+    }
+
+    @Test
+    void approximateBiomeCheckRunsWithoutThrowingAcrossCoordinates() {
+        BiomeChecker checker = cn.trialfinder.sim.biome.BiomeCheckerFactory.create();
+        // Sweep a small grid of chunk coordinates: the checker must not throw and must return a
+        // boolean (the approximate parameter list covers all land + ocean regions).
+        int hits = 0;
+        for (int cx = -20; cx <= 20; cx += 4) {
+            for (int cz = -20; cz <= 20; cz += 4) {
+                if (checker.isTrialChambersValid(188188L, cx, cz)) {
+                    hits++;
+                }
+            }
+        }
+        // At least some land coordinates must pass (the broad trial-chambers land set).
+        assertTrue(hits > 0, "some land candidates must be valid, got " + hits);
     }
 
     @Test

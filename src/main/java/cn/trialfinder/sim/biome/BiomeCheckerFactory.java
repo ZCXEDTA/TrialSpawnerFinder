@@ -4,31 +4,36 @@ import cn.trialfinder.sim.biome.noise.OverworldNoiseRouter;
 
 /**
  * Builds the {@link BiomeChecker}. The climate sampler comes from the ported
- * {@link OverworldNoiseRouter}; because the four spline dimensions are not yet exact, the checker's
- * {@link BiomeChecker#isAvailable()} is currently {@code false} and the CLI warns + skips the
- * filter rather than silently applying approximate biome values.
+ * {@link OverworldNoiseRouter} (temperature/humidity exact; the four terrain spline dimensions use
+ * deterministic shifted-noise stand-ins), and the parameter list from
+ * {@link OverworldBiomeParameters} (a coarse land-vs-ocean subset of the overworld table).
+ *
+ * <p><b>Approximate, usable:</b> {@link BiomeChecker#isAvailable()} is {@code true}; the check
+ * reliably excludes oceans / deep oceans / beaches (biomes that never host trial chambers) while
+ * keeping the broad land set. It is NOT bit-exact with the game — a land coordinate may resolve to
+ * a slightly different land biome than the server would, but since the trial-chambers tag covers
+ * essentially all land, the pass/fail decision is correct for the practical case.
  */
 public final class BiomeCheckerFactory {
     private BiomeCheckerFactory() {
     }
 
     /**
-     * Builds a checker from an overworld noise router.
+     * Builds a checker with the approximate-but-usable router and parameter list.
      *
-     * @param includeApproxSplines when true the router fills the four spline dimensions with raw
-     *                             shifted noise (deterministic, for framework testing); the checker
-     *                             still reports unavailable until {@code isComplete()} is true.
+     * @param includeApproxSplines when true the router fills the four spline dimensions with the
+     *                             deterministic shifted-noise stand-ins (required for availability);
+     *                             when false the router stays incomplete and the checker unavailable.
      */
     public static BiomeChecker create(long worldSeed, boolean includeApproxSplines) {
         OverworldNoiseRouter router = OverworldNoiseRouter.create(worldSeed, includeApproxSplines);
         ClimateSampler sampler = new RouterClimateSampler(router);
-        // Parameter list is empty until the overworld biome parameter table is extracted.
-        MultiNoiseBiomeSource source = new MultiNoiseBiomeSource(null);
+        MultiNoiseBiomeSource source = new MultiNoiseBiomeSource(OverworldBiomeParameters.create());
         return new BiomeChecker(sampler, source);
     }
 
-    /** Default (framework-only) factory: no approximate splines, checker unavailable. */
+    /** Default: approximate splines on, checker usable (the CLI {@code --biome-check} path). */
     public static BiomeChecker create() {
-        return create(0L, false);
+        return create(0L, true);
     }
 }

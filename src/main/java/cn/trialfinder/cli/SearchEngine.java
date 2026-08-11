@@ -1256,10 +1256,26 @@ public final class SearchEngine {
     public static List<SearchResult> generateClusters(
             List<CoarseCluster> clusters, SimChamberGenerator generator, Options opts,
             ProgressRenderer progress) throws IOException {
+        return generateClusters(clusters, generator, opts, progress, null);
+    }
+
+    /** {@link #generateClusters(List, SimChamberGenerator, Options, ProgressRenderer)} with an
+     * optional biome filter applied to the required chamber set before B-flow generation. */
+    public static List<SearchResult> generateClusters(
+            List<CoarseCluster> clusters, SimChamberGenerator generator, Options opts,
+            ProgressRenderer progress, cn.trialfinder.sim.biome.BiomeChecker biomeChecker) throws IOException {
         Set<BlockPoint> required = new TreeSet<>();
         for (CoarseCluster cluster : clusters) {
             for (ScoredCandidate member : cluster.members()) {
                 required.add(member.point());
+            }
+        }
+        if (biomeChecker != null && biomeChecker.isAvailable()) {
+            int before = required.size();
+            required.removeIf(p -> !biomeChecker.isTrialChambersValid(opts.seed(),
+                    Math.floorDiv(p.x(), 16), Math.floorDiv(p.z(), 16)));
+            if (opts.debug()) {
+                System.out.printf("[biome-check] %d -> %d candidates passed%n", before, required.size());
             }
         }
         progress.setStage(ProgressRenderer.STAGE_B_FLOW);
