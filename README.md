@@ -26,22 +26,22 @@ run-cuda.bat --seed 188188 --search-radius 10000 --cluster-radius 128 --min-stru
 | `--seed` | 必填 | 世界种子 |
 | `--search-radius` | 10000 | 以 (0,0) 为圆心的搜索半径（方块）；`--full-world` 时忽略 |
 | `--cluster-radius` | 1000 | 密度聚类半径（方块） |
-| `--min-structures` | 3 | 一个聚类内至少的密室数量 |
+| `--min-structures` | 3 | 一个聚类内至少的密室数量 |(参考:100w格内160格半径的三联密室已经很少了)一般256格为3 ,128格为2
 | `--min-spawners` | 20 | 密度圆内至少的试炼刷怪笼数量 |
-| `--full-world` | false | 扫描完整 6000 万 × 6000 万 世界正方形（分片流式） |
+| `--full-world` | false | 扫描完整 6000 万 × 6000 万 世界正方形（分片流式） |(待测试)
 | `--tile-size` | 100000 | `--full-world` 分片边长（方块） |
 | `--tile-overlap` | 1000 | `--full-world` 相邻分片重叠量（方块） |
-| `--top-k` | 0 | 粗筛 top-K 聚类数上限（0=关闭）。保留密室数最多的前 K 个粗聚类 |
+| `--top-k` | 0 | 粗筛 top-K 聚类数上限（0=关闭）。保留密室数最多的前 K 个粗聚类 |(待测试,不建议使用)
 | `--cluster-method` | `density` | 粗聚类方法：`density`（密度峰值 + KD-tree）或 `legacy`（并查集） |
 | `--max-cluster-size` | 0 | 密度聚类拆分阈值（0=自动 `max(200, totalCandidates/10)`） |
 | `--prefilter-mode` | `cluster` | 初筛方法：`cluster`（密度峰值 + 粗聚类，默认）或 `grid`（GPU 网格聚合 + top-K 网格） |
 | `--grid-size` | 0 | 网格边长（方块），`--prefilter-mode grid` 用（0=自动 `2*cluster-radius`） |
 | `--output-prefix` | `results-<时间戳>` | 输出文件前缀（会生成 `.csv` 与 `.txt`） |
-| `--threads` | 4 | B 流（Jigsaw 拼接）CPU 线程数 |
-| `--debug` | false | 打印进度与耗时（含 Top-K 各阶段日志） |
+| `--threads` | 4 | B 流（Jigsaw 拼接）CPU 线程数 |(不要超过电脑逻辑核心数)
+| `--debug` | false | 打印进度与耗时（含 Top-K 各阶段日志） |(有点bug)
 | `--no-gpu` | false | 强制纯 CPU 路径 |
 | `--quiet` | false | 关闭所有进度条/阶段输出（只保留结果摘要） |
-| `--min-candidates-per-tile` | 0 | 稀疏分片预筛阈值：分片密度幸存候选数低于此值则跳过粗聚类（0=自动=`--min-structures`） |
+| `--min-candidates-per-tile` | 0 | 稀疏分片预筛阈值：分片密度幸存候选数低于此值则跳过粗聚类（0=自动=`--min-structures`） |(待测试)
 | `--auto-tune` / `--no-auto-tune` | 启用 | 根据 `--search-radius` 自动计算未显式指定的 `--cluster-radius`/`--grid-size`/`--top-k`（见下） |
 | `--jigsaw-depth` | 0 | 浅层拼接深度（0=原版深度 20）。调小可加速 B 流但可能丢失部分刷怪笼 |
 
@@ -107,7 +107,7 @@ top-k          = max(20, min(200, searchRadius / 1000))
 
 **注意**：`--search-radius 10,000,000` 有约 **10.6 亿候选**，自动分片下仍需约 3–4 分钟（ETA 会显示）。若需更快，用 `--full-world --top-k`（流式全球扫描）或减小半径。
 
-### Top-K 排序优化与调试
+### Top-K 排序优化与调试(测试中)
 
 `--top-k` 启用时：
 - **单区域模式**用**有界最小堆**（`COARSE_WORST_FIRST`）只保留 top-K 粗聚类，替代全排序——O(n log k) 而非 O(n log n)。实测 10 万粗聚类 topK=50 时**3.2× 加速**（23.7ms vs 76.6ms），结果与原全排序完全一致。
@@ -157,7 +157,7 @@ top-k          = max(20, min(200, searchRadius / 1000))
 
 阶段依次为：`A-Flow`（A 流枚举）、`Density`（GPU 密度预筛）、`B-Flow`（B 流拼接）、`Stat`（密度统计）、`Sort`（结果排序）、`Output`（结果输出）。B 流拼接阶段按密室完成数增量刷新（多线程安全、每 100ms 限频）；其余单发阶段在完成时输出 100% 行。`--quiet` 时全部隐藏。
 
-### 全图扫描的分片进度（`--full-world`）
+### 全图扫描的分片进度（`--full-world`）(现在带自动分片)
 
 全图扫描把世界切成数十万块分片逐块处理。除分片内的 `B-Flow` 进度条外，还在分片之间显示一个**全局分片进度行**，避免长跑时误以为卡住：
 
@@ -172,7 +172,7 @@ top-k          = max(20, min(200, searchRadius / 1000))
 - 分片进度行每 10 个分片或每 500ms 刷新一次（`--debug` 时每个分片都刷新），`--quiet` 时完全隐藏；
 - 分片总数超过 100,000 时百分比保留一位小数。
 
-### `--top-k`（聚类级粗筛模式）
+### `--top-k`（聚类级粗筛模式）(存在问题)
 
 默认（`--top-k 0`）是逐聚类精确流水线（与 1.21.11 服务端逐位一致），但全世界的聚类/生成开销巨大。`--top-k N` 启用近似加速流水线，**以聚类为单位截断**（不会打散聚类）：
 
@@ -211,7 +211,7 @@ GPU 加速使用**预编译 cubin**：发布包内置 `trial_finder_sm_89/sm_86/
 
 未安装 nvcc 或 MSVC 时该任务会打印警告并跳过，不影响其他构建。
 
-### 方式二：原版 Minecraft 服务端（Mod）
+### 方式二：原版 Minecraft 服务端（Mod）(废弃)
 
 编辑 `finder.properties`，`powershell -ExecutionPolicy Bypass -File ./setup.ps1` 构建后双击 `run.bat` 搜索。
 
