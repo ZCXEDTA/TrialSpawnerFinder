@@ -258,43 +258,42 @@ public final class QueryCommand implements Callable<Integer> {
     }
 
     private void renderTable(List<QueryResult> results) {
-        // Summary per query point.
-        String[] headers = {"查询点X", "查询点Z", "密室数", "刷怪笼总数", "怪物类型（去重）"};
-        List<String[]> rows = new ArrayList<>(results.size());
-        int[] widths = new int[headers.length];
-        for (int i = 0; i < headers.length; i++) {
-            widths[i] = displayWidth(headers[i]);
-        }
+        // Per query point: summary + per-chamber breakdown (chamber #, spawner kind tally, details).
         for (QueryResult result : results) {
-            String[] row = {
-                    Integer.toString(result.x()), Integer.toString(result.z()),
-                    Integer.toString(result.chamberCount()), Integer.toString(result.spawnerCount()),
-                    String.join(",", result.mobs())
-            };
-            for (int i = 0; i < row.length; i++) {
-                widths[i] = Math.max(widths[i], displayWidth(row[i]));
+            System.out.printf("== 查询点 (%,d, %,d)  radius=%d  密室 %d 个  刷怪笼 %d 个 ==%n",
+                    result.x(), result.z(), this.radius, result.chamberCount(), result.spawnerCount());
+            if (result.chambers().isEmpty()) {
+                System.out.println("   （无密室）");
+                System.out.println();
+                continue;
             }
-            rows.add(row);
-        }
-        writeTableRow(headers, widths);
-        for (String[] row : rows) {
-            writeTableRow(row, widths);
-        }
-
-        // Detailed per-spawner lines.
-        String[] detailHeaders = {"查询点X", "查询点Z", "密室X", "密室Z", "刷怪笼X", "Y", "Z",
-                "怪物", "实体", "权重", "间隔tick", "同时数", "同时+玩家", "总数", "总数+玩家"};
-        int[] dw = new int[detailHeaders.length];
-        for (int i = 0; i < detailHeaders.length; i++) {
-            dw[i] = displayWidth(detailHeaders[i]);
-        }
-        List<String[]> detailRows = new ArrayList<>();
-        for (QueryResult result : results) {
+            int chamberIdx = 0;
             for (ChamberOut chamber : result.chambers()) {
+                chamberIdx++;
+                System.out.printf("  密室 #%d  坐标 (%,d, %,d)  刷怪笼 %d 个%n",
+                        chamberIdx, chamber.x(), chamber.z(), chamber.spawners().size());
+
+                // Kind tally: entity -> count.
+                java.util.LinkedHashMap<String, Integer> tally = new java.util.LinkedHashMap<>();
+                for (SpawnerOut s : chamber.spawners()) {
+                    String key = s.mob() + (s.entity() != null ? " (" + s.entity() + ")" : "");
+                    tally.merge(key, 1, Integer::sum);
+                }
+                System.out.print("      种类: ");
+                System.out.println(tally.entrySet().stream()
+                        .map(e -> e.getValue() + "× " + e.getKey())
+                        .collect(java.util.stream.Collectors.joining(", ")));
+
+                // Detail rows: each spawner with its position + loot (entity/weight/interval).
+                String[] detailHeaders = {"刷怪笼X", "Y", "Z", "怪物", "实体", "权重",
+                        "间隔tick", "同时数", "同时+玩家", "总数", "总数+玩家"};
+                int[] dw = new int[detailHeaders.length];
+                for (int i = 0; i < detailHeaders.length; i++) {
+                    dw[i] = displayWidth(detailHeaders[i]);
+                }
+                List<String[]> detailRows = new ArrayList<>();
                 for (SpawnerOut s : chamber.spawners()) {
                     String[] row = {
-                            Integer.toString(result.x()), Integer.toString(result.z()),
-                            Integer.toString(chamber.x()), Integer.toString(chamber.z()),
                             Integer.toString(s.x()), Integer.toString(s.y()), Integer.toString(s.z()),
                             s.mob(),
                             s.entity() != null ? s.entity() : "-",
@@ -310,15 +309,13 @@ public final class QueryCommand implements Callable<Integer> {
                     }
                     detailRows.add(row);
                 }
+                writeTableRow(detailHeaders, dw);
+                for (String[] row : detailRows) {
+                    writeTableRow(row, dw);
+                }
+                System.out.println();
             }
-        }
-        if (detailRows.isEmpty()) {
-            return;
-        }
-        System.out.println();
-        writeTableRow(detailHeaders, dw);
-        for (String[] row : detailRows) {
-            writeTableRow(row, dw);
+            System.out.println();
         }
     }
 
