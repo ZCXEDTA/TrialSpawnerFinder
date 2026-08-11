@@ -130,13 +130,6 @@ top-k          = max(50, min(5000, searchRadius / 100))
 - **密度网格自适应**：网格超限时无损放大格长
 - **召回率优化**：重叠分片 + 重叠 cell + 无损密度预筛
 
-| 场景 | 耗时 |
-|---|---|
-| 10k 半径精确 | ~14s |
-| 100k 半径 grid | ~6s |
-| 1M 半径（自动分片） | ~7.5s |
-| 10M 半径 | ~1.5-4 分钟 |
-| 30M 半径（世界极限） | ~10+ 分钟 |
 
 ---
 
@@ -175,6 +168,39 @@ run-cli.bat query --seed 188188 --coords 544,166 1000,-2000 --radius 1000
 
 ## 示例
 
+### 推荐参数（30 万格半径找密集区）
+
+```bash
+run-cli.bat --seed -6523988883445283364 --search-radius 300000 --cluster-radius 256 --min-structures 3 --min-spawners 70 --threads 14 --debug
+```
+
+**实测**（RTX 4060 + 14 线程）：**约 28 秒**，95.5 万候选 → grid 预筛 9096 → 10 个结果。
+
+**逐参数解析**：
+
+| 参数 | 值 | 含义 | 为什么这么设 |
+|---|---|---|---|
+| `--seed` | `-6523988883445283364` | 世界种子 | 目标种子 |
+| `--search-radius` | `300000` | 以 (0,0) 为圆心的搜索半径（方块），即 30 万格 | 覆盖较大范围；>10 万格自动切 GPU 网格预筛，速度可控 |
+| `--cluster-radius` | `256` | 密度聚类半径（方块） | 密室间距约 544 块，256 格能聚起 2-3 个相邻密室。**不要 < 544 的一半**，否则聚不出聚类 |
+| `--min-structures` | `3` | 一个聚类内至少 3 个密室 | 与 `cluster-radius 256` 匹配（256 格内三联密室较常见；若用 128 格建议降为 2） |
+| `--min-spawners` | `70` | 密度圆内至少 70 个刷怪笼 | 较高阈值 → 只保留"真正密集"的区域，结果少而精（实测 10 个） |
+| `--threads` | `14` | B 流（Jigsaw 拼接）CPU 线程数 | 接近物理核心数；不要超过逻辑核心数 |
+| `--debug` | — | 打印配置摘要、进度、耗时 | 首次运行建议开启，能看到 auto-tune 的实际取值 |
+
+**运行时会看到**：
+```
+[auto-tune] search radius 300,000 is large -> prefilter-mode: cluster -> grid   ← 自动切 GPU 网格
+[auto-tune] top-k: 0 -> 3000                                                    ← 自动算 top-K
+config      : seed=-6523988883445283364 searchRadius=300000 ...                  ← 配置摘要
+[grid prefilter] candidates=955421 retained=9096 (top 3000 cells/tile)          ← 预筛结果
+candidates  : 955,421   pruned: 946,325   results: 10                            ← 最终结果
+```
+
+> 想让结果更多？调低 `--min-spawners`（如 40）；想更快？减小 `--search-radius` 或调低 `--top-k`。
+
+### 其他常用示例
+
 ```bash
 # 快速验证（约 6 秒）
 run-cli.bat --seed 188188 --search-radius 1000000 --cluster-radius 256 --threads 14
@@ -185,10 +211,7 @@ run-cli.bat --seed 188188 --search-radius 100000 --cluster-radius 1000 --min-str
 # 全图流式扫描（推荐 Top-K 截断）
 run-cli.bat --seed 188188 --full-world --tile-size 100000 --tile-overlap 1000 --top-k 100000 --threads 14
 
-# 超大半径（自动分片，内存有界）
-run-cli.bat --seed -6523988883445283364 --search-radius 300000 --cluster-radius 256 --min-structures 2 --min-spawners 40 --threads 14
-
-# 生物群系过滤
+# 生物群系过滤（排除海底密室）
 run-cli.bat --seed 188188 --search-radius 10000 --biome-check
 
 # 定点查询
