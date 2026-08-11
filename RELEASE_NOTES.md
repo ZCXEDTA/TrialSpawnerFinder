@@ -1,3 +1,23 @@
+# TrialSpawnerFinder 1.1.0
+
+定点查询新增**宝库（Vault）查找**。在 Minecraft Java 版 1.21.11 世界种子中查找试炼密室密集区域。
+
+## ✨ 本版本新增：宝库查找
+
+- **宝库位置与类型**：`query` 列出每个密室的宝库坐标与类型（普通宝库 / 不祥宝库）。
+- **三种输出**：table 显示 `宝库X Y Z 类型` 明细；json 输出 `vaults` 数组；csv 每行末尾 `宝库` 列。
+- **B 流缓存**：宝库位置随刷怪笼一起缓存，重复查询直接命中（旧缓存文件向后兼容）。
+- **宝库坐标可直达**：游戏内 `/tp x y z` 直接传送到宝库。
+
+**宝库类型**：普通宝库（`reward/vault`）用试炼钥匙开启；不祥宝库（`reward/ominous_vault`）用不祥试炼钥匙开启。
+
+```bash
+# 查看某区域密室的刷怪笼 + 宝库
+run-cli.bat query --seed 188188 --coords 544,166 --radius 1000
+```
+
+---
+
 # TrialSpawnerFinder 1.0.0 正式版
 
 TrialSpawnerFinder 首个正式版。独立 CLI（CUDA 加速），在 Minecraft Java 版 1.21.11 世界种子中查找试炼密室密集区域。
