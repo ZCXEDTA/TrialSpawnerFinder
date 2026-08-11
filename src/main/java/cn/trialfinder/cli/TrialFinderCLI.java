@@ -51,7 +51,7 @@ import java.util.function.Consumer;
         name = "trialfinder",
         mixinStandardHelpOptions = true,
         subcommands = {QueryCommand.class},
-        version = "TrialSpawnerFinder 1.0.0-beta.1",
+        version = "TrialSpawnerFinder 1.0.0-beta.2",
         description = "Find dense trial-chamber clusters for a seed. CUDA-accelerated when available.")
 public final class TrialFinderCLI implements Callable<Integer> {
 
