@@ -552,7 +552,7 @@ public final class TrialFinderCLI implements Callable<Integer> {
      * <pre>
      *   cluster-radius = max(64, min(256, searchRadius / 200))
      *   grid-size      = 2 * cluster-radius
-     *   top-k          = max(20, min(200, searchRadius / 1000))
+     *   top-k          = max(50, min(5000, searchRadius / 100))
      * </pre>
      *
      * <p>Skipped in {@code --full-world} mode: {@code search-radius} is ignored there, and the
@@ -604,7 +604,9 @@ public final class TrialFinderCLI implements Callable<Integer> {
             this.gridSize = tuned;
         }
         if (!parsed.hasMatchedOption("--top-k")) {
-            int tuned = Math.max(20, Math.min(200, this.searchRadius / 1000));
+            // Higher top-K = lower prefilter loss (more cells/candidates survive), at the cost of
+            // more B-flow work. Scales with radius: bigger searches keep a larger share of cells.
+            int tuned = Math.max(50, Math.min(5000, this.searchRadius / 100));
             if (tuned != this.topK) {
                 if (this.debug) {
                     System.out.printf("[auto-tune] top-k: %d -> %d%n", this.topK, tuned);
