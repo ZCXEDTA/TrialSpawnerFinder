@@ -661,8 +661,23 @@ public final class SearchEngine {
         stats.candidateCount += ownedCandidates.size();
 
         progress.setStage(ProgressRenderer.STAGE_DENSITY);
-        List<BlockPoint> retained = acc.gridAggregateAndSelect(
-                ownedCandidates, opts.clusterRadius(), opts.effectiveGridSize(), opts.topK());
+
+        // Method 2: lossless density prefilter first. A candidate with < minStructures neighbours
+        // within 2R cannot be a member of any qualifying cluster, so dropping it never changes the
+        // result — it only shrinks the input to the (lossy) cell truncation below.
+        boolean[] keep = acc.pruneByDensity(ownedCandidates, opts.clusterRadius(), opts.minStructures());
+        List<BlockPoint> denseCandidates = new ArrayList<>(ownedCandidates.size());
+        for (int i = 0; i < ownedCandidates.size(); i++) {
+            if (keep[i]) {
+                denseCandidates.add(ownedCandidates.get(i));
+            }
+        }
+
+        // Method 3: overlapping cells. A dense cluster straddling a cell boundary would be split —
+        // each cell keeps its own top-K and the boundary-side members can drop out of both. So run
+        // the grid selection twice with a half-cell-shifted grid and merge the unions.
+        List<BlockPoint> retained = overlappingGridSelect(
+                denseCandidates, opts.clusterRadius(), opts.effectiveGridSize(), opts.topK(), acc);
 
         progress.setStage(ProgressRenderer.STAGE_B_FLOW);
         Set<BlockPoint> required = new TreeSet<>(retained);
@@ -1346,6 +1361,34 @@ public final class SearchEngine {
         }
         results.sort(java.util.Comparator.naturalOrder());
         return results;
+    }
+
+    /**
+     * Grid prefilter with overlapping cells (method 3): runs the cell top-K selection twice — once
+     * on the normal grid and once on a grid shifted by half a cell — and merges the unions. A dense
+     * cluster straddling a cell boundary is cut in one grid but fully inside a cell of the other,
+     * so its members survive. Deterministic (results are de-duplicated via a sorted set).
+     */
+    private static List<BlockPoint> overlappingGridSelect(
+            List<BlockPoint> candidates, int clusterRadius, int gridSize, int topK, Accelerator acc) {
+        if (candidates.isEmpty() || topK <= 0) {
+            return List.of();
+        }
+        // Shift the grid origin by half a cell so the second pass' boundaries differ from the first.
+        int half = Math.max(1, gridSize / 2);
+        java.util.TreeSet<BlockPoint> union = new java.util.TreeSet<>();
+        union.addAll(acc.gridAggregateAndSelect(candidates, clusterRadius, gridSize, topK));
+
+        // Second pass with a shifted origin: gridAggregateAndSelect uses the candidates' own
+        // min/max as origin, so simulate the shift by pre-shifting each candidate and shifting back.
+        List<BlockPoint> shifted = new ArrayList<>(candidates.size());
+        for (BlockPoint p : candidates) {
+            shifted.add(new BlockPoint(p.x() - half, p.z() - half));
+        }
+        for (BlockPoint p : acc.gridAggregateAndSelect(shifted, clusterRadius, gridSize, topK)) {
+            union.add(new BlockPoint(p.x() + half, p.z() + half));
+        }
+        return new ArrayList<>(union);
     }
 
     private static boolean inside(BlockPoint p, long minX, long maxX, long minZ, long maxZ) {
