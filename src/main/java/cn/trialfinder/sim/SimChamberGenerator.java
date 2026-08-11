@@ -188,19 +188,22 @@ public final class SimChamberGenerator {
     public java.util.Optional<ChamberResult> generate(long worldSeed, int chunkX, int chunkZ) {
         if (this.cache != null && this.cache.isEnabled()) {
             synchronized (this.cache.lockFor(worldSeed, chunkX, chunkZ)) {
-                List<SpawnerCache.SpawnerData> cached = this.cache.get(worldSeed, chunkX, chunkZ);
+                SpawnerCache.CachedChamber cached = this.cache.get(worldSeed, chunkX, chunkZ);
                 if (cached != null) {
                     if (this.cache.debug()) {
-                        System.out.printf("[DEBUG] cache hit  seed=%d chunk=(%d,%d) spawners=%d%n",
-                                worldSeed, chunkX, chunkZ, cached.size());
+                        System.out.printf("[DEBUG] cache hit  seed=%d chunk=(%d,%d) spawners=%d vaults=%d%n",
+                                worldSeed, chunkX, chunkZ, cached.spawners().size(), cached.vaults().size());
                     }
-                    return java.util.Optional.of(ChamberResult.fromCached(cached));
+                    return java.util.Optional.of(ChamberResult.fromCached(cached.spawners(), cached.vaults()));
                 }
                 java.util.Optional<ChamberResult> result = doGenerate(worldSeed, chunkX, chunkZ);
-                result.ifPresent(r -> this.cache.put(worldSeed, chunkX, chunkZ, toCachedSpawners(r.spawnerInfos())));
+                result.ifPresent(r -> this.cache.put(worldSeed, chunkX, chunkZ,
+                        toCachedSpawners(r.spawnerInfos()), toCachedVaults(r.vaultInfos())));
                 if (this.cache.debug()) {
-                    System.out.printf("[DEBUG] cache miss seed=%d chunk=(%d,%d) spawners=%d%n",
-                            worldSeed, chunkX, chunkZ, result.map(r -> r.spawnerInfos().size()).orElse(0));
+                    System.out.printf("[DEBUG] cache miss seed=%d chunk=(%d,%d) spawners=%d vaults=%d%n",
+                            worldSeed, chunkX, chunkZ,
+                            result.map(r -> r.spawnerInfos().size()).orElse(0),
+                            result.map(r -> r.vaultInfos().size()).orElse(0));
                 }
                 return result;
             }
@@ -235,7 +238,8 @@ public final class SimChamberGenerator {
                 .map(result -> {
                     List<SpawnerInfo> infos = collectSpawnerInfos(result);
                     List<BlockPos> positions = infos.stream().map(SpawnerInfo::pos).toList();
-                    return new ChamberResult(result, positions, resolveMobAliases(aliasLookup), infos);
+                    List<VaultInfo> vaults = collectVaultInfos(result);
+                    return new ChamberResult(result, positions, resolveMobAliases(aliasLookup), infos, vaults);
                 });
     }
 
@@ -263,6 +267,37 @@ public final class SimChamberGenerator {
         }
         spawners.sort(Comparator.comparing(SpawnerInfo::pos));
         return spawners;
+    }
+
+    /**
+     * Collects every vault block across all assembled pieces, together with whether the vault is the
+     * ominous variant. Vaults come from the {@code reward/vault} (normal) and
+     * {@code reward/ominous_vault} (ominous) templates; the template id is used to distinguish them.
+     */
+    private List<VaultInfo> collectVaultInfos(JigsawPlacement.JigsawResult result) {
+        List<VaultInfo> vaults = new ArrayList<>();
+        for (PoolElementStructurePiece piece : result.pieces()) {
+            StructurePoolElement element = piece.getElement();
+            if (element instanceof SinglePoolElement single) {
+                StructureTemplate template = single.getTemplate(this.templateManager);
+                List<StructureBlockInfo> infos = template.filterBlocks(
+                        piece.getPosition(),
+                        new StructurePlaceSettings().setRotation(piece.getRotation()),
+                        "minecraft:vault");
+                boolean ominous = isOminousVaultTemplate(single);
+                for (StructureBlockInfo info : infos) {
+                    vaults.add(new VaultInfo(info.pos(), ominous));
+                }
+            }
+        }
+        vaults.sort(Comparator.comparing(VaultInfo::pos));
+        return vaults;
+    }
+
+    /** True when the piece's template is the ominous-vault reward template. */
+    private static boolean isOminousVaultTemplate(SinglePoolElement single) {
+        String path = single.getTemplateLocation().getPath();
+        return path.contains("ominous_vault");
     }
 
     /** Returns the {@code normal_config} id of a spawner block's NBT, or {@code null}. */
@@ -296,6 +331,15 @@ public final class SimChamberGenerator {
         return list;
     }
 
+    private static List<SpawnerCache.VaultData> toCachedVaults(List<VaultInfo> vaults) {
+        List<SpawnerCache.VaultData> list = new ArrayList<>(vaults.size());
+        for (VaultInfo vault : vaults) {
+            list.add(new SpawnerCache.VaultData(
+                    vault.pos().getX(), vault.pos().getY(), vault.pos().getZ(), vault.ominous()));
+        }
+        return list;
+    }
+
     /** Resolves the C-flow mob-type aliases for this chamber and exposes them for reporting. */
     private MobAliases resolveMobAliases(PoolAliasLookup lookup) {
         return new MobAliases(
@@ -319,19 +363,28 @@ public final class SimChamberGenerator {
             JigsawPlacement.JigsawResult assembly,
             List<BlockPos> spawnerPositions,
             MobAliases mobAliases,
-            List<SpawnerInfo> spawnerInfos) {
+            List<SpawnerInfo> spawnerInfos,
+            List<VaultInfo> vaultInfos) {
 
         /**
          * Builds a result from a cache entry. The assembly and mob-alias data are not cached
-         * (only the spawner positions and mob types), so both are {@code null} here.
+         * (only the spawner positions/mob types and vault positions), so both are {@code null} here.
          */
-        public static ChamberResult fromCached(List<SpawnerCache.SpawnerData> cached) {
+        public static ChamberResult fromCached(List<SpawnerCache.SpawnerData> cached,
+                                               List<SpawnerCache.VaultData> cachedVaults) {
             List<SpawnerInfo> infos = cached.stream()
                     .map(s -> new SpawnerInfo(new BlockPos(s.x(), s.y(), s.z()), s.mob(), s.config()))
                     .toList();
             List<BlockPos> positions = infos.stream().map(SpawnerInfo::pos).toList();
-            return new ChamberResult(null, positions, null, infos);
+            List<VaultInfo> vaults = cachedVaults.stream()
+                    .map(v -> new VaultInfo(new BlockPos(v.x(), v.y(), v.z()), v.ominous()))
+                    .toList();
+            return new ChamberResult(null, positions, null, infos, vaults);
         }
+    }
+
+    /** A vault block within a chamber: its position and whether it is the ominous variant. */
+    public record VaultInfo(BlockPos pos, boolean ominous) {
     }
 
     public record MobAliases(String ranged, String slowRanged, String melee, String smallMelee) {

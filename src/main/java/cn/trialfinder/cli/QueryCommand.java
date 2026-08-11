@@ -41,10 +41,19 @@ public final class QueryCommand implements Callable<Integer> {
         }
     }
 
+    /** One output vault row. */
+    public record VaultOut(int x, int y, int z, boolean ominous) {
+    }
+
     /** One chamber found near a query point. */
-    public record ChamberOut(int x, int z, List<SpawnerOut> spawners) {
+    public record ChamberOut(int x, int z, List<SpawnerOut> spawners, List<VaultOut> vaults) {
+        public ChamberOut(int x, int z, List<SpawnerOut> spawners) {
+            this(x, z, spawners, List.of());
+        }
+
         public ChamberOut {
             spawners = List.copyOf(spawners);
+            vaults = List.copyOf(vaults);
         }
 
         public int spawnerCount() {
@@ -168,7 +177,10 @@ public final class QueryCommand implements Callable<Integer> {
                 mobs.add(spawner.mob());
             }
             totalSpawners += spawners.size();
-            chambers.add(new ChamberOut(candidate.x(), candidate.z(), spawners));
+            List<VaultOut> vaults = result.vaultInfos().stream()
+                    .map(v -> new VaultOut(v.pos().getX(), v.pos().getY(), v.pos().getZ(), v.ominous()))
+                    .toList();
+            chambers.add(new ChamberOut(candidate.x(), candidate.z(), spawners, vaults));
         }
         chambers.sort((a, b) -> {
             int byX = Integer.compare(a.x(), b.x());
@@ -270,8 +282,8 @@ public final class QueryCommand implements Callable<Integer> {
             int chamberIdx = 0;
             for (ChamberOut chamber : result.chambers()) {
                 chamberIdx++;
-                System.out.printf("  密室 #%d  坐标 (%,d, %,d)  刷怪笼 %d 个%n",
-                        chamberIdx, chamber.x(), chamber.z(), chamber.spawners().size());
+                System.out.printf("  密室 #%d  坐标 (%,d, %,d)  刷怪笼 %d 个  宝库 %d 个%n",
+                        chamberIdx, chamber.x(), chamber.z(), chamber.spawners().size(), chamber.vaults().size());
 
                 // Kind tally: entity -> count.
                 java.util.LinkedHashMap<String, Integer> tally = new java.util.LinkedHashMap<>();
@@ -313,6 +325,30 @@ public final class QueryCommand implements Callable<Integer> {
                 for (String[] row : detailRows) {
                     writeTableRow(row, dw);
                 }
+
+                // Vault rows: each vault with its position + ominous flag.
+                if (!chamber.vaults().isEmpty()) {
+                    String[] vaultHeaders = {"宝库X", "Y", "Z", "类型"};
+                    int[] vw = new int[vaultHeaders.length];
+                    for (int i = 0; i < vaultHeaders.length; i++) {
+                        vw[i] = displayWidth(vaultHeaders[i]);
+                    }
+                    List<String[]> vaultRows = new ArrayList<>();
+                    for (VaultOut v : chamber.vaults()) {
+                        String[] row = {
+                                Integer.toString(v.x()), Integer.toString(v.y()), Integer.toString(v.z()),
+                                v.ominous() ? "不祥宝库" : "普通宝库"
+                        };
+                        for (int i = 0; i < row.length; i++) {
+                            vw[i] = Math.max(vw[i], displayWidth(row[i]));
+                        }
+                        vaultRows.add(row);
+                    }
+                    writeTableRow(vaultHeaders, vw);
+                    for (String[] row : vaultRows) {
+                        writeTableRow(row, vw);
+                    }
+                }
                 System.out.println();
             }
             System.out.println();
@@ -345,23 +381,30 @@ public final class QueryCommand implements Callable<Integer> {
     }
 
     private void renderCsv(List<QueryResult> results) {
-        System.out.println("查询点X;查询点Z;密室X;密室Z;刷怪笼X;刷怪笼Y;刷怪笼Z;怪物类型;配置文件;实体;权重;间隔tick;同时数;同时+玩家;总数;总数+玩家");
+        System.out.println("查询点X;查询点Z;密室X;密室Z;刷怪笼X;刷怪笼Y;刷怪笼Z;怪物类型;配置文件;实体;权重;间隔tick;同时数;同时+玩家;总数;总数+玩家;宝库");
         for (QueryResult result : results) {
             for (ChamberOut chamber : result.chambers()) {
+                String vaultStr = chamber.vaults().stream()
+                        .map(v -> v.x() + "," + v.y() + "," + v.z() + (v.ominous() ? "(不祥)" : ""))
+                        .collect(java.util.stream.Collectors.joining("|"));
+                if (vaultStr.isEmpty()) {
+                    vaultStr = "-";
+                }
                 if (chamber.spawners().isEmpty()) {
-                    System.out.printf("%d;%d;%d;%d;;;;;;;-;;%n",
-                            result.x(), result.z(), chamber.x(), chamber.z());
+                    System.out.printf("%d;%d;%d;%d;;;;;;;-;;;%s%n",
+                            result.x(), result.z(), chamber.x(), chamber.z(), vaultStr);
                     continue;
                 }
                 for (SpawnerOut spawner : chamber.spawners()) {
-                    System.out.printf("%d;%d;%d;%d;%d;%d;%d;%s;%s;%s;%d;%d;%s;%s;%s;%s%n",
+                    System.out.printf("%d;%d;%d;%d;%d;%d;%d;%s;%s;%s;%d;%d;%s;%s;%s;%s;%s%n",
                             result.x(), result.z(), chamber.x(), chamber.z(),
                             spawner.x(), spawner.y(), spawner.z(), spawner.mob(),
                             spawner.config() != null ? spawner.config() : "-",
                             spawner.entity() != null ? spawner.entity() : "-",
                             spawner.weight(), spawner.ticksBetweenSpawn(),
                             fmt(spawner.simultaneousMobs()), fmt(spawner.simultaneousMobsPerPlayer()),
-                            fmt(spawner.totalMobs()), fmt(spawner.totalMobsPerPlayer()));
+                            fmt(spawner.totalMobs()), fmt(spawner.totalMobsPerPlayer()),
+                            vaultStr);
                 }
             }
         }

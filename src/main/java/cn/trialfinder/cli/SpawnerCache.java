@@ -37,12 +37,22 @@ public final class SpawnerCache {
         }
     }
 
+    /** A single cached vault block: its position and whether it is the ominous variant. */
+    public record VaultData(int x, int y, int z, boolean ominous) {
+    }
+
+    /** A full cached chamber: spawners plus vaults. */
+    public record CachedChamber(List<SpawnerData> spawners, List<VaultData> vaults) {
+    }
+
     /** JSON file layout — mirrors the on-disk cache file. */
     public static final class CacheFile {
         public long seed;
         public int chunkX;
         public int chunkZ;
         public List<SpawnerData> spawners = new ArrayList<>();
+        /** Vault positions; {@code null} for cache files written by older builds. */
+        public List<VaultData> vaults = new ArrayList<>();
     }
 
     private final Path dir;
@@ -83,8 +93,8 @@ public final class SpawnerCache {
         return this.locks.computeIfAbsent(key(seed, chunkX, chunkZ), ignored -> new Object());
     }
 
-    /** Returns the cached spawners for the key, or {@code null} when absent / disabled / corrupt. */
-    public List<SpawnerData> get(long seed, int chunkX, int chunkZ) {
+    /** Returns the cached chamber for the key, or {@code null} when absent / disabled / corrupt. */
+    public CachedChamber get(long seed, int chunkX, int chunkZ) {
         if (!this.enabled) {
             return null;
         }
@@ -99,7 +109,8 @@ public final class SpawnerCache {
                     || parsed.chunkX != chunkX || parsed.chunkZ != chunkZ) {
                 return null;
             }
-            return parsed.spawners;
+            List<VaultData> vaults = parsed.vaults != null ? parsed.vaults : List.of();
+            return new CachedChamber(parsed.spawners, vaults);
         } catch (IOException | RuntimeException e) {
             if (this.debug) {
                 System.out.println("[DEBUG] cache read failed for " + file + ": " + e.getMessage());
@@ -108,8 +119,8 @@ public final class SpawnerCache {
         }
     }
 
-    /** Writes the spawners to the cache file (temp file + atomic move). */
-    public void put(long seed, int chunkX, int chunkZ, List<SpawnerData> spawners) {
+    /** Writes the spawners and vaults to the cache file (temp file + atomic move). */
+    public void put(long seed, int chunkX, int chunkZ, List<SpawnerData> spawners, List<VaultData> vaults) {
         if (!this.enabled) {
             return;
         }
@@ -120,6 +131,7 @@ public final class SpawnerCache {
             file.chunkX = chunkX;
             file.chunkZ = chunkZ;
             file.spawners = new ArrayList<>(spawners);
+            file.vaults = vaults != null ? new ArrayList<>(vaults) : new ArrayList<>();
             Path target = fileFor(seed, chunkX, chunkZ);
             Path tmp = this.dir.resolve(target.getFileName() + ".tmp");
             Files.writeString(tmp, this.gson.toJson(file), StandardCharsets.UTF_8);

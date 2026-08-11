@@ -4,7 +4,7 @@
 
 这是一个 **CUDA 加速的独立命令行工具**，通过复刻游戏服务端的试炼密室生成算法（34×34 chunk 网格定位 + Jigsaw 拼接 + 怪物别名解析），在纯 Java + GPU + CPU 下高速扫描大范围世界,调用近似算法初步筛选结果,减少CPU运算的压力,牺牲部分精度换取高速度。
 
-- **版本**：1.0.0
+- **版本**：1.1.0
 - **JDK 21 必需**
 - **GPU**：可选。需 NVIDIA 驱动（内核已预编译为 cubin 打包进 JAR，**无需 CUDA Toolkit**）,不支持旧gpu ；GPU 不可用时自动回退纯 CPU
 
@@ -228,6 +228,59 @@ run-cli.bat query --seed 188188 --coords 544,166 1000,-2000 --radius 1000
 | `simultaneousMobsPerPlayer` | 每玩家同时加成 |
 | `totalMobs` / `totalMobsPerPlayer` | 总生成数 / 每玩家加成 |
 
+### 宝库（Vault）查找
+
+每个密室除了刷怪笼，还列出其中的**宝库**（Vault）位置与类型。宝库是试炼密室的通关奖励入口：玩家用**试炼钥匙**（普通宝库）或**不祥试炼钥匙**（不祥宝库）开启，消耗钥匙换取宝库内的奖励。
+
+#### 三种输出格式
+
+**`table`**（默认）：每个密室下方多出 `宝库X Y Z 类型` 明细表，密室汇总行也显示宝库总数：
+
+```
+  密室 #3  坐标 (840, 104)  刷怪笼 17 个  宝库 17 个
+     种类: 4× breeze (minecraft:breeze), 6× stray (minecraft:stray), ...
+
+刷怪笼X  Y    Z   怪物      实体  ...          ← 刷怪笼明细
+  ...                                          ← （原有，见上）
+
+宝库X    Y    Z   类型                          ← 宝库明细
+  851  -45   80  不祥宝库
+  866  -27  125  普通宝库
+  855  -23  100  普通宝库
+  ...
+```
+
+**`json`**：每个密室带 `vaults` 数组，每项 `{ "x", "y", "z", "ominous" }`（`ominous: true` = 不祥宝库，`false` = 普通宝库）：
+
+```json
+{
+  "x": 544, "z": 166, "chamberCount": 3, "spawnerCount": 57,
+  "chambers": [
+    { "x": 840, "z": 104, "spawners": [ ... ],
+      "vaults": [
+        { "x": 851, "y": -45, "z": 80, "ominous": true },
+        { "x": 866, "y": -27, "z": 125, "ominous": false }
+      ] }
+  ]
+}
+```
+
+**`csv`**：每行末尾新增 `宝库` 列，格式 `x,y,z(不祥)`，多个宝库用 `|` 分隔：
+
+```
+查询点X;查询点Z;密室X;密室Z;刷怪笼X;...;总数+玩家;宝库
+  544;  166;  840;  104;  851;-42;88;breeze;...;  1;851,-45,80(不祥)|866,-27,125
+```
+
+#### 宝库类型
+
+| 类型 | 结构模板 | 开启钥匙 |
+|---|---|---|
+| **普通宝库** | `trial_chambers/reward/vault` | 试炼钥匙（普通刷怪笼通关掉落） |
+| **不祥宝库** | `trial_chambers/reward/ominous_vault` | 不祥试炼钥匙（不祥刷怪笼通关掉落） |
+
+> 宝库坐标是**精确方块坐标**，游戏内可直接 `/tp x y z` 传送。`--cache` 会把宝库位置随刷怪笼一起缓存，重复查询直接命中。
+
 ### 完整参数
 
 `--seed`（必填）、`--coords`、`--file`、`--radius`（默认 1000）、`--output`（table/json/csv）、`--cache`/`--cache-dir`（复用 B 流缓存加速重复查询）、`--threads`、`--no-gpu`、`--debug`。
@@ -242,7 +295,7 @@ run-cli.bat --seed 188188 --search-radius 100000 --cluster-radius 1000 --min-str
 run-cli.bat query --seed 188188 --file results-<时间戳>.csv --radius 1000 --output table
 ```
 
-这样能精查搜索发现的最密集区域，看每个密室的刷怪笼构成。
+这样能精查搜索发现的最密集区域，看每个密室的刷怪笼构成和宝库位置。
 
 ---
 
@@ -316,7 +369,7 @@ run-cli.bat query --seed 188188 --coords 544,166 1000,-2000 --radius 1000
 git clone <repo>
 cd TrialSpawnerFinder
 ./gradlew clean test shadowJar
-# 独立 fat JAR: build/libs/trialfinder-1.0.0.jar
+# 独立 fat JAR: build/libs/trialfinder-1.1.0.jar
 # 可选: 重新生成预编译 cubin (需 nvcc + MSVC)
 ./gradlew compileCubin
 ```
