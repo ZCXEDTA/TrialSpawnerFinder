@@ -135,22 +135,104 @@ top-k          = max(50, min(5000, searchRadius / 100))
 
 ## 定点查询（`query` 子命令）
 
-不进行全量搜索，只查询指定坐标附近的密室详情：
+**不进行全量搜索**，只查询指定坐标附近 radius 内的所有密室，列出每个密室的刷怪笼详细参数。适合：确认某片区域的密室密度、查看特定位置的刷怪笼构成、分析 results 结果附近的生成情况。
+
+### 基本用法
 
 ```bash
-# 坐标
+# 查询一个坐标附近 1000 格内的密室
+run-cli.bat query --seed 188188 --coords 544,166 --radius 1000
+
+# 查询多个坐标（空格分隔）
 run-cli.bat query --seed 188188 --coords 544,166 1000,-2000 --radius 1000
-
-# 坐标文件（每行 "x z"）
-./run-cli.sh query --seed 188188 --file coords.txt --radius 1000 --output json
-
-# 从之前生成的 results CSV 读取中心坐标
-./run-cli.sh query --seed 188188 --file results-20260810-161409.csv --radius 1000 --output csv
 ```
 
-参数：`--seed`、`--coords`（x,z 可多个）、`--file`、`--radius`（默认 1000）、`--output`（`table`/`json`/`csv`）、`--cache`/`--cache-dir`、`--threads`、`--no-gpu`、`--debug`。
+### 三种输入方式
 
-输出每个刷怪笼的**详细参数**：位置、怪物类型、配置文件 id、实际实体（如毒骷髅→`minecraft:bogged`）、权重、生成间隔（tick）、同时生成数、每玩家加成。
+| 方式 | 命令 | 适用 |
+|---|---|---|
+| **坐标** | `--coords 544,166 1000,-2000` | 少量点，直接命令行 |
+| **坐标文件** | `--file coords.txt` | 多行，每行 `x z`（`#` 注释） |
+| **results CSV** | `--file results-20260810-161409.csv` | 直接复用之前搜索的结果中心坐标 |
+
+```bash
+# 坐标文件示例（coords.txt）
+544 166
+1000 -2000
+-500 300
+
+# 用法
+./run-cli.sh query --seed 188188 --file coords.txt --radius 1000
+```
+
+> **注意**：`--file` 用**绝对路径**，或先 `cd` 到脚本所在目录再给相对路径（脚本 cwd 是自身目录）。
+
+### 三种输出格式
+
+**`table`**（默认，先汇总再展开每个刷怪笼）：
+
+```
+查询点X  查询点Z  密室数  刷怪笼总数  怪物类型（去重）
+  544      166       8      145     baby_zombie,breeze,cave_spider,...
+
+查询点X  查询点Z  密室X  密室Z  刷怪笼X  Y  Z   怪物      实体            权重  间隔tick  同时数  同时+玩家  总数  总数+玩家
+  544    166   24   696    19   -24  697  skeleton  minecraft:skeleton  1     20      3     0.5      0    0
+  544    166   24   696   -17   -19  697  breeze    minecraft:breeze    1     20      1     0.5      2    1
+```
+
+**`json`**（结构化，适合程序处理）：
+
+```bash
+./run-cli.sh query --seed 188188 --coords 544,166 --radius 600 --output json
+```
+
+```json
+{
+  "x": 544, "z": 166, "chamberCount": 8, "spawnerCount": 145,
+  "chambers": [
+    { "x": 24, "z": 696, "spawners": [
+      { "x": 183, "y": -36, "z": -254, "mob": "poison_skeleton",
+        "config": "minecraft:trial_chamber/ranged/poison_skeleton/normal",
+        "entity": "minecraft:bogged", "weight": 1,
+        "ticksBetweenSpawn": 20, "simultaneousMobs": 3.0, ... } ] }
+  ]
+}
+```
+
+**`csv`**（每刷怪笼一行，含全部列）：
+
+```bash
+./run-cli.sh query --seed 188188 --file coords.csv --radius 1000 --output csv
+```
+
+### 每个刷怪笼的字段
+
+| 字段 | 含义 |
+|---|---|
+| `mob` | 怪物类型（如 `skeleton`、`breeze`、`poison_skeleton`） |
+| `entity` | 实际生成实体 id（如毒骷髅→`minecraft:bogged`） |
+| `config` | 配置文件 id（如 `.../ranged/skeleton/normal`） |
+| `weight` | 生成权重 |
+| `ticksBetweenSpawn` | 生成间隔（tick，20 tick = 1 秒） |
+| `simultaneousMobs` | 同时生成数 |
+| `simultaneousMobsPerPlayer` | 每玩家同时加成 |
+| `totalMobs` / `totalMobsPerPlayer` | 总生成数 / 每玩家加成 |
+
+### 完整参数
+
+`--seed`（必填）、`--coords`、`--file`、`--radius`（默认 1000）、`--output`（table/json/csv）、`--cache`/`--cache-dir`（复用 B 流缓存加速重复查询）、`--threads`、`--no-gpu`、`--debug`。
+
+### 复用搜索结果的完整流程
+
+```bash
+# 1. 先做一次搜索
+run-cli.bat --seed 188188 --search-radius 100000 --cluster-radius 1000 --min-structures 3 --min-spawners 20 --top-k 200
+
+# 2. 对 top 结果做定点查询（用生成的 results CSV 作为查询点）
+run-cli.bat query --seed 188188 --file results-<时间戳>.csv --radius 1000 --output table
+```
+
+这样能精查搜索发现的最密集区域，看每个密室的刷怪笼构成。
 
 ---
 
