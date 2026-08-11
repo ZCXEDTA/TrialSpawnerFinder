@@ -1,25 +1,24 @@
-# TrialSpawnerFinder 1.0.0-beta.2 预览版
+# TrialSpawnerFinder 1.0.0 正式版
 
-基于 beta.1 的**召回率优化**版本。独立 CLI（CUDA 加速），在 Minecraft Java 版 1.21.11 世界种子中查找试炼密室密集区域。
+TrialSpawnerFinder 首个正式版。独立 CLI（CUDA 加速），在 Minecraft Java 版 1.21.11 世界种子中查找试炼密室密集区域。
 
-## 🎯 本版本改进（召回率）
+## ✨ 功能特性
 
-针对"漏掉很多相近的密室"做了三项优化：
+- **精确复刻 1.21.11 试炼密室生成**：A 流（34×34 网格定位）+ B 流（Jigsaw 拼接）+ C 流（怪物别名），三条随机流逐位一致。
+- **CUDA 加速**：GPU 枚举 + 密度预筛直通，RTX 4060 实测 30 万格半径约 28 秒；GPU 不可用自动回退纯 CPU。
+- **独立 CLI**：`shadowJar` 产出 fat JAR，无需 Minecraft 服务端，JDK 21 即可运行。
+- **定点查询**（`query` 子命令）：列出指定坐标附近的密室与刷怪笼详细参数。
 
-**方法 1 — 提高 top-K**
-- auto-tune 公式 `max(20, min(200, r/1000))` → `max(50, min(5000, r/100))`
-- 实测 100k 半径 topK 200→1000：结果 **287→528（+84%）**
-- 想提高召回就加大 `--top-k`（上限 5000）；想更快就减小
+## 🎯 本版本（自 beta.2）改进
 
-**方法 2 — 无损密度预筛**（全图 grid 路径）
-- cell 截断前先 `pruneByDensity` 去掉 2R 邻域 < `min-structures` 的候选
-- **数学保证无损**：任何合格聚类成员必然 2R 内 ≥ min-structures，去掉它们不影响结果
+**召回率优化**
+- 提高 top-K：auto-tune 公式 `max(20, min(200, r/1000))` → `max(50, min(5000, r/100))`，实测 100k 半径结果 **287→528（+84%）**。
+- 无损密度预筛：去掉 2R 邻域 < `min-structures` 的候选，**数学保证无损**。
+- 重叠 cell：原网格 + 半 cell 偏移网格各选一次 top-K 取并集，修复横跨 cell 边界的密集区漏召回。
+- 自动分片 tile 之间重叠一半边长，修复跨 tile 密集区被漏。
 
-**方法 3 — 重叠 cell**（全图 grid 路径）
-- 原网格 + 半 cell 偏移网格各选一次 top-K，取并集
-- 横跨 cell 边界的密集区在一个网格里被切、在另一个里完整，成员不丢失
-
-**额外**：自动分片 tile 之间重叠一半边长，修复跨 tile 密集区被漏的问题。
+**输出修正**
+- `query` 输出聚焦刷怪笼位置与生成参数（怪物、实体、权重、间隔、生成数），移除战利品相关字段。
 
 ## ⚠️ 环境要求与已知问题
 
@@ -30,11 +29,10 @@
 - GPU 原生库仅随附 Windows x86_64；Linux/macOS 请用 `--no-gpu`。
 
 **参数建议**
-- `--cluster-radius` 不要小于密室间距（~544 块），否则聚不出聚类、结果可能为空；100w 格内 160 格半径的三联密室已很少，一般 256 格配 `min-structures 3`、128 格配 `min-structures 2`。
+- `--cluster-radius` 不要小于密室间距（~544 块），否则聚不出聚类、结果可能为空；一般 256 格配 `min-structures 3`、128 格配 `min-structures 2`。
 - `--search-radius 30,000,000`（世界极限）候选约 95.5 亿，自动分片可跑完但需 10 分钟以上；建议缩小半径或用 `--full-world`。
 - `--top-k` 默认 auto-tune（0 表示关闭全量 B 流，超大半径极慢；建议 1000+）。
 - `--threads` 不要超过逻辑核心数。
-- `--cache` 默认禁用是有意的（低命中率时磁盘 I/O 拖慢）；重复搜索同一种子才建议开启。
 
 **已知限制**
 - `--biome-check` 实验性：NoiseRouter 未完全移植，启用后警告并跳过。
@@ -66,7 +64,7 @@ run-cli.bat query --seed 188188 --coords 544,166 1000,-2000 --radius 1000
 
 ## 📦 安装
 
-1. 下载 `trialfinder-beta.2.zip` 解压，或直接用 `trialfinder-1.0.0-beta.2.jar`。
+1. 下载 `trialfinder-1.0.0.zip` 解压，或直接用 `trialfinder-1.0.0.jar`。
 2. 需要 JDK 21。
 3. Windows 双击 `run-cli.bat`；Linux/macOS `./run-cli.sh`。
 

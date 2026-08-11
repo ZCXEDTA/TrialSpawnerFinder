@@ -308,7 +308,7 @@ run-cli.bat query --seed 188188 --coords 544,166 1000,-2000 --radius 1000
 git clone <repo>
 cd TrialSpawnerFinder
 ./gradlew clean test shadowJar
-# 独立 fat JAR: build/libs/trialfinder-1.0.0-beta.2.jar
+# 独立 fat JAR: build/libs/trialfinder-1.0.0.jar
 # 可选: 重新生成预编译 cubin (需 nvcc + MSVC)
 ./gradlew compileCubin
 ```
