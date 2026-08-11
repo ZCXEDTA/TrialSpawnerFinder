@@ -15,6 +15,7 @@
 ```bash
 # Windows
 .\run-cli.bat --seed 188188 --search-radius 10000
+```
 示例:
 .\run-cli.bat --seed -6523988883445283364 --search-radius 300000 --cluster-radius 256 --min-structures 2 --min-spawners 40 --threads 14
 --cluster-radius建议根据情况取从模拟距离到256之间的 128推荐查大范围二联 256查三联
@@ -22,7 +23,7 @@
 --min-spawners 最低笼子数量,建议为密室数量*20
 --threads  调用CPU逻辑核心数
 --top-k 粗筛 top-K 聚类数上限（0=关闭全量 B 流，超大半径极慢）。越大召回越高/精度越高但越慢,越小速度越快/精度损失越大
-
+```bash
 # Linux / macOS
 ./run-cli.sh --seed 188188 --search-radius 10000
 ```
