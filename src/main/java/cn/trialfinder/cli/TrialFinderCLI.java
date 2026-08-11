@@ -219,6 +219,20 @@ public final class TrialFinderCLI implements Callable<Integer> {
         if (prefilterMode.equalsIgnoreCase("grid") && topK > 0) {
             System.out.printf("prefilter   : grid (cell %d blocks)%n", opts.effectiveGridSize());
         }
+        // 完整配置摘要：显示全部生效参数（命令行 / finder.properties / 默认 融合后的最终值）。
+        System.out.println("config      : ----");
+        System.out.printf("config      : seed=%d searchRadius=%d clusterRadius=%d minStructures=%d minSpawners=%d%n",
+                seed, searchRadius, clusterRadius, minStructures, minSpawners);
+        System.out.printf("config      : fullWorld=%s threads=%d tileSize=%d tileOverlap=%d%n",
+                fullWorld, threads, tileSize, tileOverlap);
+        System.out.printf("config      : topK=%d clusterMethod=%s maxClusterSize=%d prefilterMode=%s gridSize=%d%n",
+                topK, clusterMethod, maxClusterSize, prefilterMode, opts.effectiveGridSize());
+        System.out.printf("config      : outputPrefix=%s cache=%s cacheDir=%s jigsawDepth=%d biomeCheck=%s%n",
+                outputPrefix != null ? outputPrefix : "results-<时间戳>",
+                cacheEnabled ? "on" : "off", cacheDir, jigsawDepth, biomeCheck);
+        System.out.printf("config      : gpu=%s debug=%s quiet=%s minCandidatesPerTile=%d%n",
+                noGpu ? "off" : "on", debug, quiet, opts.effectiveMinCandidatesPerTile());
+        System.out.println("config      : ----");
         cn.trialfinder.sim.biome.BiomeChecker biomeChecker = null;
         if (biomeCheck) {
             biomeChecker = cn.trialfinder.sim.biome.BiomeCheckerFactory.create();
