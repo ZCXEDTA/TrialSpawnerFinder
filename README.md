@@ -36,10 +36,17 @@
 ```
 
 **示例**（30 万格半径找密集区）：
-```bash
+```powershell
 .\run-cli.bat --seed -6523988883445283364 --search-radius 300000 --cluster-radius 256 --min-structures 2 --min-spawners 40 --threads 14
 ```
-
+大范围可以使用缓存(中断后快速恢复)
+```powershell
+.\run-cli.bat --seed -6523988883445283364 --search-radius 1000000 --cluster-radius 160 --min-structures 2 --min-spawners 40 --threads 14 --check-top 100 --cache
+```
+定点查询
+```powershell
+.\run-cli.bat query --seed -6523988883445283364 --coords -89589,42331 --radius 160
+```
 参数建议：
 - `--cluster-radius`：根据情况取从模拟距离到 256 之间，128 推荐查大范围二联、256 查三联
 - `--min-structures`：初筛相连密室数量，根据半径调整
@@ -245,7 +252,7 @@ run-cli.bat query --seed 188188 --coords 544,166 1000,-2000 --radius 1000
       { "x": 183, "y": -36, "z": -254, "mob": "poison_skeleton",
         "config": "minecraft:trial_chamber/ranged/poison_skeleton/normal",
         "entity": "minecraft:bogged", "weight": 1,
-        "ticksBetweenSpawn": 20, "simultaneousMobs": 3.0, ... } ] }
+        "ticksBetweenSpawn": 20, "simultaneousMobs": 3.0, "..." } ] }
   ]
 }
 ```
@@ -297,7 +304,7 @@ run-cli.bat query --seed 188188 --coords 544,166 1000,-2000 --radius 1000
 {
   "x": 544, "z": 166, "chamberCount": 3, "spawnerCount": 57,
   "chambers": [
-    { "x": 840, "z": 104, "spawners": [ ... ],
+    { "x": 840, "z": 104, "spawners": [ "..." ],
       "vaults": [
         { "x": 851, "y": -45, "z": 80, "ominous": true },
         { "x": 866, "y": -27, "z": 125, "ominous": false }
@@ -342,7 +349,34 @@ run-cli.bat query --seed 188188 --file results-<时间戳>.csv --radius 1000 --o
 
 ## B 流缓存（`--cache`，默认禁用）
 
-默认禁用是有意的：低命中率时磁盘 I/O 反而拖慢。重复搜索同一种子 / 重叠查询点才建议开启。每个密室（seed+chunk）缓存为 `spawners_<seed>_<chunkX>_<chunkZ>.json`，含刷怪笼坐标 + 怪物类型 + 配置。
+默认禁用是有意的：低命中率时磁盘 I/O 反而拖慢。**重复搜索同一种子 / 重叠查询点才建议开启**。每个密室（seed+chunk）缓存为 `spawners_<seed>_<chunkX>_<chunkZ>.json`，含刷怪笼坐标 + 怪物类型 + 配置 + 宝库位置。
+
+### 断点快扫（缓存的核心价值）
+
+`--cache` 能让你**中断后从断点继续快扫**：
+
+```bash
+# 第一次：启用缓存完整扫描
+run-cli.bat --seed 188188 --search-radius 300000 --cache --cache-dir ./cache
+
+# 中断后重跑：已生成的密室直接从缓存命中，只补扫未完成的区域
+run-cli.bat --seed 188188 --search-radius 300000 --cache --cache-dir ./cache
+```
+
+- **同一种子**：已缓存的密室（seed+chunk）直接命中，跳过 Jigsaw 拼接，大幅提速。
+- **调整参数后重扫**：即使改了 `--cluster-radius`/`--min-spawners` 等聚类参数，B 流生成结果不变，缓存依然命中——只重新聚类，不重新生成密室。
+- **大半径 / 全图扫描**：分片进度 + 缓存复用，中断恢复后进度从断点继续，不必从头跑。
+
+> 缓存文件按 seed+chunk 存储，与聚类/筛选参数无关，因此换参数不失效。首次扫描会把所有访问过的密室写入缓存，后续（含中断重扫）直接复用。
+
+### 精度提醒：`--top-k`
+
+`--top-k` 是粗筛聚类数上限，**越大召回越高、精度越高，但越慢**。默认 `auto-tune` 自动算（`max(50, min(5000, searchRadius/100))`）。**如果追求高精度/不漏结果**，请显式提高 `--top-k`（如 1000、5000，甚至更高）；需要更快则调低。
+
+```bash
+# 高精度：加大 top-k（配合 --cache，重复扫描/调参时密室不会重算）
+run-cli.bat --seed 188188 --search-radius 300000 --top-k 5000 --cache --cache-dir ./cache
+```
 
 ---
 
