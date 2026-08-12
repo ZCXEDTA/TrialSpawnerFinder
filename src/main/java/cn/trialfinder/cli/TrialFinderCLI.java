@@ -150,6 +150,12 @@ public final class TrialFinderCLI implements Callable<Integer> {
                     + "truncates decorative recursion and speeds up B-flow but may drop spawners.")
     int jigsawDepth;
 
+    @Option(names = "--check-top", defaultValue = "0",
+            description = "Inspect the top N results: per result, re-generate its chambers and tally "
+                    + "fast/slow trial spawners and vaults (appended to the CSV/TXT output). "
+                    + "0 (default) disables the check.")
+    int checkTop;
+
     @Option(names = "--auto-tune", defaultValue = "true", fallbackValue = "true",
             description = "Automatically tune cluster-radius/grid-size/top-k from search-radius "
                     + "when unset (default: enabled)")
@@ -275,7 +281,7 @@ public final class TrialFinderCLI implements Callable<Integer> {
                 : "results-" + TIMESTAMP.format(LocalDateTime.now());
         Path csv = Path.of(prefix + ".csv");
         this.progress.setStage(ProgressRenderer.STAGE_OUTPUT);
-        SearchEngine.writeResults(csv, result.results());
+        writeResultsWithCheck(csv, result.results(), this.checkTop > 0 ? newGenerator(opts) : null);
         this.progress.stageDone(result.resultCount());
 
         System.out.printf("candidates  : %,d%n", result.candidateCount());
@@ -298,7 +304,7 @@ public final class TrialFinderCLI implements Callable<Integer> {
                 : "results-" + TIMESTAMP.format(LocalDateTime.now());
         Path csv = Path.of(prefix + ".csv");
         this.progress.setStage(ProgressRenderer.STAGE_OUTPUT);
-        SearchEngine.writeResults(csv, result.results());
+        writeResultsWithCheck(csv, result.results(), this.checkTop > 0 ? newGenerator(opts) : null);
         this.progress.stageDone(result.resultCount());
 
         System.out.printf("candidates  : %,d%n", result.candidateCount());
@@ -341,7 +347,7 @@ public final class TrialFinderCLI implements Callable<Integer> {
                 : "results-" + TIMESTAMP.format(LocalDateTime.now());
         Path csv = Path.of(prefix + ".csv");
         this.progress.setStage(ProgressRenderer.STAGE_OUTPUT);
-        cn.trialfinder.io.ResultWriter.write(csv, results, Integer.MAX_VALUE);
+        writeResultsWithCheck(csv, results, generator);
         this.progress.stageDone(results.size());
         System.out.printf("results     : %,d complete clusters (spawners >= %,d)%n",
                 results.size(), opts.minSpawners());
@@ -414,7 +420,7 @@ public final class TrialFinderCLI implements Callable<Integer> {
                 : "results-" + TIMESTAMP.format(LocalDateTime.now());
         Path csv = Path.of(prefix + ".csv");
         this.progress.setStage(ProgressRenderer.STAGE_OUTPUT);
-        cn.trialfinder.io.ResultWriter.write(csv, results, Integer.MAX_VALUE);
+        writeResultsWithCheck(csv, results, generator);
         this.progress.stageDone(results.size());
         System.out.printf("results     : %,d complete clusters (spawners >= %,d)%n",
                 results.size(), opts.minSpawners());
@@ -562,6 +568,27 @@ public final class TrialFinderCLI implements Callable<Integer> {
             generator.setJigsawDepth(opts.jigsawDepth());
         }
         return generator;
+    }
+
+    /**
+     * Writes {@code results} to {@code csv} (+ its aligned TXT), optionally inspecting the top
+     * {@code --check-top} results and appending their fast/slow-spawner and vault tallies as extra
+     * columns. When {@code checkTop <= 0} this behaves exactly like {@code SearchEngine.writeResults}.
+     */
+    private void writeResultsWithCheck(Path csv, List<cn.trialfinder.model.SearchResult> results,
+                                       SimChamberGenerator generator) throws IOException {
+        if (this.checkTop <= 0 || generator == null) {
+            SearchEngine.writeResults(csv, results);
+            return;
+        }
+        List<cn.trialfinder.cli.CheckTopChecker.CheckResult> checks =
+                cn.trialfinder.cli.CheckTopChecker.check(this.seed, results, generator, this.checkTop);
+        SearchEngine.writeResults(csv, results, checks);
+        int checked = checks.size();
+        long fast = checks.stream().mapToLong(cn.trialfinder.cli.CheckTopChecker.CheckResult::fastSpawners).sum();
+        long slow = checks.stream().mapToLong(cn.trialfinder.cli.CheckTopChecker.CheckResult::slowSpawners).sum();
+        long vaults = checks.stream().mapToLong(cn.trialfinder.cli.CheckTopChecker.CheckResult::vaults).sum();
+        System.out.printf("check-top   : %d results | fast=%d slow=%d vaults=%d%n", checked, fast, slow, vaults);
     }
 
     /**

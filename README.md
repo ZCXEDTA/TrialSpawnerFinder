@@ -92,6 +92,7 @@
 | `--cache` | false | 启用 B 流磁盘缓存（默认禁用，见下） |
 | `--cache-dir` | ./cache | 缓存目录（仅 `--cache` 时使用） |
 | `--jigsaw-depth` | 0 | 浅层 Jigsaw 拼接深度（0=原版 20；调小加速但可能丢刷怪笼） |
+| `--check-top` | 0 | 检查前 N 个结果的快速/慢速刷怪笼与宝库数量，追加到 CSV/TXT（0=不检查） |
 | `--auto-tune` / `--no-auto-tune` | 启用 | 自动计算未显式指定的 `--cluster-radius`/`--grid-size`/`--top-k` |
 
 ---

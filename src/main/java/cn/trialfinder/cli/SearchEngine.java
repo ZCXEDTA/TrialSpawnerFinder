@@ -1487,4 +1487,11 @@ public final class SearchEngine {
         cn.trialfinder.io.ResultWriter.write(csvPath, results);
         return csvPath;
     }
+
+    /** Like {@link #writeResults(Path, List)}, but appends per-row check tallies when provided. */
+    public static Path writeResults(Path csvPath, List<SearchResult> results,
+                                    List<cn.trialfinder.cli.CheckTopChecker.CheckResult> checks) throws IOException {
+        cn.trialfinder.io.ResultWriter.write(csvPath, results, 100, checks);
+        return csvPath;
+    }
 }
