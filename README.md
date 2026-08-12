@@ -4,18 +4,18 @@
 
 这是一个 **CUDA 加速的独立命令行工具**，通过复刻游戏服务端的试炼密室生成算法（34×34 chunk 网格定位 + Jigsaw 拼接 + 怪物别名解析），在纯 Java + GPU + CPU 下高速扫描大范围世界,调用近似算法初步筛选结果,减少CPU运算的压力,牺牲部分精度换取高速度。
 
-- **版本**：1.2.0
+- **版本**：1.3.0
 - **GPU**：可选。需 NVIDIA 驱动（内核已预编译为 cubin 打包进 JAR，**无需 CUDA Toolkit**）,不支持旧gpu ；GPU 不可用时自动回退纯 CPU
 
 ### 📦 发布版本（三种，按需下载）
 
 命名规范：`trialfinder-<版本>-<变体>.zip`——`with-runtime-graalvm`（GraalVM 带环境）/ `with-runtime-jre`（标准带环境）/ `without-runtime`（不带环境）。
 
-| 版本 | 文件 | 体积 | 环境要求 | 性能 |
-|---|---|---|---|---|
-| **GraalVM 性能版** | `trialfinder-1.2.0-with-runtime-graalvm.zip` | ~60MB | **无需安装 JDK**（内含 GraalVM JRE） | 🚀 **最快**（JIT 约快 20%） |
-| **标准带环境版（推荐）** | `trialfinder-1.2.0-with-runtime-jre.zip` | ~42MB | **无需安装 JDK**（内含精简 JRE） | 标准 |
-| **不带环境版** | `trialfinder-1.2.0-without-runtime.zip` | ~11MB | 需自备 JDK 21+（或 GraalVM） | 取决于系统 |
+| 版本               | 文件 | 体积 | 环境要求 | 性能 |
+|--------------------|---|---|---|---|
+| **GraalVM 性能版** | `trialfinder-1.3.0-with-runtime-graalvm.zip` | ~60MB | **无需安装 JDK**（内含 GraalVM JRE） | 🚀 **最快**（JIT 约快 20%） |
+| **标准带环境版**   | `trialfinder-1.3.0-with-runtime-jre.zip` | ~42MB | **无需安装 JDK**（内含精简 JRE） | 标准 |
+| **不带环境版**     | `trialfinder-1.3.0-without-runtime.zip` | ~11MB | 需自备 JDK 21+（或 GraalVM） | 取决于系统 |
 
 > **自动适配**：`run-cli.bat`/`run-cli.sh` 自动选择 Java 运行时——优先 `GRAALVM_HOME`/`JAVA_HOME` 环境变量 → `finder.properties` 的 `java-home`/`graalvm-home` → **捆绑的 `runtime-graalvm\`（GraalVM 性能版）或 `runtime\`（标准版）** → 系统 java。装了好 JDK 会优先用，没有就用捆绑的。
 
@@ -23,7 +23,7 @@
 
 ## 快速开始
 
-**带环境版解压即用**（Windows）：下载 `trialfinder-1.2.0-with-runtime-jre.zip`（标准）或 `trialfinder-1.2.0-with-runtime-graalvm.zip`（性能）→ 解压 → 双击/命令行运行 `run-cli.bat`，无需安装任何 Java。
+**带环境版解压即用**（Windows）：下载 `trialfinder-1.3.0-with-runtime-jre.zip`（标准）或 `trialfinder-1.3.0-with-runtime-graalvm.zip`（性能）→ 解压 → 双击/命令行运行 `run-cli.bat`，无需安装任何 Java。
 
 **不带环境版**：需系统已装 JDK 21+（或 GraalVM），`run-cli.bat` 会自动检测。
 
@@ -31,7 +31,7 @@
 # Windows
 .\run-cli.bat --seed 188188 --search-radius 10000
 
-# Linux / macOS（不带环境版）
+# Linux / macOS（不带环境）
 ./run-cli.sh --seed 188188 --search-radius 10000
 ```
 
@@ -94,6 +94,29 @@
 | `--jigsaw-depth` | 0 | 浅层 Jigsaw 拼接深度（0=原版 20；调小加速但可能丢刷怪笼） |
 | `--check-top` | 0 | 检查前 N 个结果的快速/慢速刷怪笼与宝库数量，追加到 CSV/TXT（0=不检查） |
 | `--auto-tune` / `--no-auto-tune` | 启用 | 自动计算未显式指定的 `--cluster-radius`/`--grid-size`/`--top-k` |
+
+### `--check-top`：检查前 N 个结果
+
+对最终输出的**前 N 个结果**逐个重新生成其密室，统计每种密室的**快速/慢速刷怪笼**和**宝库**数量，并追加到 CSV/TXT 输出的末尾列。
+
+- **快速刷怪笼**：`ticks_between_spawn = 20`（非 `slow_ranged` 分类）
+- **慢速刷怪笼**：`ticks_between_spawn = 160`（`slow_ranged` 分类，如骷髅/流浪者）
+- **宝库**：该结果所有密室中的宝库总数
+
+```bash
+# 对前 10 个结果做检查
+run-cli.bat --seed 188188 --search-radius 100000 --cluster-radius 256 --check-top 10
+```
+
+控制台输出：`check-top : 3 results | fast=123 slow=40 vaults=241`
+
+CSV 追加 3 列：
+```
+排名;中心X;中心Z;密室数量;试炼刷怪笼数量;密室位置;快速刷怪笼;慢速刷怪笼;宝库数量
+1;-1056;3600;3;51;-1288,3608|...;44;12;79
+```
+
+TXT 对齐输出同样追加这 3 列。默认 `--check-top 0` 不检查（输出格式与之前一致）。
 
 ---
 
@@ -387,7 +410,7 @@ run-cli.bat query --seed 188188 --coords 544,166 1000,-2000 --radius 1000
 git clone <repo>
 cd TrialSpawnerFinder
 ./gradlew clean test shadowJar
-# 独立 fat JAR: build/libs/trialfinder-1.2.0.jar
+# 独立 fat JAR: build/libs/trialfinder-1.3.0.jar
 # 可选: 重新生成预编译 cubin (需 nvcc + MSVC)
 ./gradlew compileCubin
 ```
