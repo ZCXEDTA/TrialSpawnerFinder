@@ -392,8 +392,7 @@ cd TrialSpawnerFinder
 ```
 
 - **`shadowJar`**：独立 CLI fat JAR（主类 `cn.trialfinder.cli.TrialFinderCLI`）
-- **`remapJar`**：Fabric Mod（另有 `world`/`mixin` 包）
-- **测试**：124 个 JUnit 用例（GPU/CPU 逐位一致由测试保证）
+- **测试**：JUnit 用例（GPU/CPU 逐位一致由测试保证）
 
 ---
 

@@ -1,8 +1,5 @@
 plugins {
-    id 'fabric-loom' version '1.17.17'
     id 'application'
-    id 'maven-publish'
-    // Standalone CLI fat JAR (independent of the loom mod jar path).
     id 'com.gradleup.shadow' version '9.6.1'
 }
 
@@ -15,14 +12,6 @@ group = project.maven_group
 
 base {
     archivesName = project.archives_base_name
-}
-
-loom {
-    runs {
-        server {
-            runDir 'run'
-        }
-    }
 }
 
 repositories {
@@ -38,13 +27,7 @@ configurations {
 }
 
 dependencies {
-    minecraft "com.mojang:minecraft:${project.minecraft_version}"
-    mappings loom.officialMojangMappings()
-    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
-    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
-
-    // cn.trialfinder.sim reads the datapack pool JSONs via Gson. Minecraft bundles Gson at
-    // runtime, so this is an explicit compile/test classpath dependency (not remapped/bundled).
+    // cn.trialfinder.sim reads the datapack pool JSONs via Gson.
     implementation 'com.google.code.gson:gson:2.13.2'
 
     // CLI: picocli argument parsing.
@@ -80,13 +63,6 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
-processResources {
-    inputs.property 'version', project.version
-    filesMatching('fabric.mod.json') {
-        expand 'version': inputs.properties.version
-    }
-}
-
 tasks.withType(JavaCompile).configureEach {
     it.options.release = 21
     it.options.encoding = 'UTF-8'
@@ -102,7 +78,6 @@ test {
 }
 
 // Standalone CLI fat JAR: bundles the project classes/resources + cliRuntime deps only.
-// This is a separate artifact from the loom mod jar (remapJar) and is intentionally NOT remapped.
 shadowJar {
     archiveBaseName = 'trialfinder'
     archiveVersion = project.version
@@ -115,12 +90,6 @@ shadowJar {
     // Signature / module descriptor files from bundled dependency jars are not needed.
     exclude('META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', 'META-INF/MANIFEST.MF')
     exclude('module-info.class', 'META-INF/versions/**/module-info.class')
-
-    // Mod-only classes that reference Minecraft — never loaded by the CLI.
-    exclude('cn/trialfinder/mixin/**')
-    exclude('cn/trialfinder/world/**')
-    exclude('cn/trialfinder/TrialSpawnerFinderMod*.class')
-    exclude('cn/trialfinder/search/FinderSearch*.class')
 
     manifest {
         attributes 'Main-Class': 'cn.trialfinder.cli.TrialFinderCLI',
