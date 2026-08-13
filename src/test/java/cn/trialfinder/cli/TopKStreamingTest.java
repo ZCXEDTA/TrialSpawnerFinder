@@ -113,7 +113,7 @@ class TopKStreamingTest {
                 union, null, baseline, acc, false, 0, 0, 0);
         // A high sparse threshold: coarse clustering is skipped, so no clusters.
         SearchEngine.Options skip = new SearchEngine.Options(
-                SEED, 10_000, 128, 3, 1, false, 4, false, 4_000, 500, "density", 0,
+                SEED, 10_000, 128, 3, 1, false, 4, false, 4_000, 500,
                 0, "cluster", 0, null, Integer.MAX_VALUE, 0, 0, 0);
         List<SearchEngine.CoarseCluster> skipped = SearchEngine.coarseClustersForRegion(
                 union, null, skip, acc, false, 0, 0, 0);

@@ -28,7 +28,7 @@ class GridPrefilterTest {
         // Baseline: exact cluster pipeline (topK=0, prefilter=cluster).
         SearchEngine.Options clusterOpts = new SearchEngine.Options(
                 SEED, 3000, 128, 1, 1, false, 4, false, 100_000, 1_000,
-                "density", 0, 0, "cluster", 0);
+                0, "cluster", 0);
         SearchEngine.Result baseline = SearchEngine.run(clusterOpts, acc, NULL_OUT);
         List<SearchResult> top = baseline.results().stream().limit(10).toList();
         assertTrue(!top.isEmpty(), "baseline should produce results");
@@ -38,7 +38,7 @@ class GridPrefilterTest {
         // demonstrating pruning. Grid prefilter is coarser than cluster by design.
         SearchEngine.Options gridOpts = new SearchEngine.Options(
                 SEED, 3000, 128, 1, 1, false, 4, false, 100_000, 1_000,
-                "density", 0, 60, "grid", 512);
+                60, "grid", 512);
         SearchEngine.Result grid = SearchEngine.runGrid(gridOpts, acc, NULL_OUT);
 
         int recalled = 0;
@@ -66,7 +66,7 @@ class GridPrefilterTest {
         // Small top-K forces real pruning: keep only the top-10 cells.
         SearchEngine.Options gridOpts = new SearchEngine.Options(
                 SEED, 3000, 128, 1, 1, false, 4, false, 100_000, 1_000,
-                "density", 0, 10, "grid", 512);
+                10, "grid", 512);
         SearchEngine.Result grid = SearchEngine.runGrid(gridOpts, acc, NULL_OUT);
         int raw = grid.candidateCount();
         int retained = raw - grid.prunedCount();

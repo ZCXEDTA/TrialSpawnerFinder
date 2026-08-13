@@ -4,7 +4,7 @@
 
 这是一个 **CUDA 加速的独立命令行工具**，通过复刻游戏服务端的试炼密室生成算法（34×34 chunk 网格定位 + Jigsaw 拼接 + 怪物别名解析），在纯 Java + GPU + CPU 下高速扫描大范围世界,调用近似算法初步筛选结果,减少CPU运算的压力,牺牲部分精度换取高速度。
 
-- **版本**：1.3.0
+- **版本**：1.4.0
 - **GPU**：可选。需 NVIDIA 驱动（内核已预编译为 cubin 打包进 JAR，**无需 CUDA Toolkit**）,不支持旧gpu ；GPU 不可用时自动回退纯 CPU
 
 ### 📦 发布版本（三种，按需下载）
@@ -13,9 +13,9 @@
 
 | 版本               | 文件 | 体积 | 环境要求 | 性能 |
 |--------------------|---|---|---|---|
-| **GraalVM 性能版** | `trialfinder-1.3.0-with-runtime-graalvm.zip` | ~60MB | **无需安装 JDK**（内含 GraalVM JRE） | 🚀 **最快**（JIT 约快 20%） |
-| **标准带环境版**   | `trialfinder-1.3.0-with-runtime-jre.zip` | ~42MB | **无需安装 JDK**（内含精简 JRE） | 标准 |
-| **不带环境版**     | `trialfinder-1.3.0-without-runtime.zip` | ~11MB | 需自备 JDK 21+（或 GraalVM） | 取决于系统 |
+| **GraalVM 性能版** | `trialfinder-1.4.0-with-runtime-graalvm.zip` | ~60MB | **无需安装 JDK**（内含 GraalVM JRE） | 🚀 **最快**（JIT 约快 20%） |
+| **标准带环境版**   | `trialfinder-1.4.0-with-runtime-jre.zip` | ~42MB | **无需安装 JDK**（内含精简 JRE） | 标准 |
+| **不带环境版**     | `trialfinder-1.4.0-without-runtime.zip` | ~11MB | 需自备 JDK 21+（或 GraalVM） | 取决于系统 |
 
 > **自动适配**：`run-cli.bat`/`run-cli.sh` 自动选择 Java 运行时——优先 `GRAALVM_HOME`/`JAVA_HOME` 环境变量 → `finder.properties` 的 `java-home`/`graalvm-home` → **捆绑的 `runtime-graalvm\`（GraalVM 性能版）或 `runtime\`（标准版）** → 系统 java。装了好 JDK 会优先用，没有就用捆绑的。
 
@@ -23,7 +23,7 @@
 
 ## 快速开始
 
-**带环境版解压即用**（Windows）：下载 `trialfinder-1.3.0-with-runtime-jre.zip`（标准）或 `trialfinder-1.3.0-with-runtime-graalvm.zip`（性能）→ 解压 → 双击/命令行运行 `run-cli.bat`，无需安装任何 Java。
+**带环境版解压即用**（Windows）：下载 `trialfinder-1.4.0-with-runtime-jre.zip`（标准）或 `trialfinder-1.4.0-with-runtime-graalvm.zip`（性能）→ 解压 → 双击/命令行运行 `run-cli.bat`，无需安装任何 Java。
 
 **不带环境版**：需系统已装 JDK 21+（或 GraalVM），`run-cli.bat` 会自动检测。
 
@@ -37,7 +37,7 @@
 
 **示例**
 ```powershell
- .\run-cli.bat --seed -6523988883445283364 --search-radius 1000000 --cluster-radius 128  --min-structures 2 --min-spawners 40 --threads 14 --predict-depth 10 --predict-gate 18 --prefilter-mode=cluster
+ .\run-cli.bat --seed -6523988883445283364 --search-radius 1000000 --cluster-radius 128  --min-structures 2 --min-spawners 40 --threads 14 --check-top 100 
 ```
 大范围可以使用缓存(中断后快速恢复) 同种子通用,会产生cache文件夹,cache文件较大,需要手动清理
 ```powershell
@@ -79,8 +79,6 @@
 | `--min-structures` | 3 | 一个聚类内至少的密室数量 |
 | `--min-spawners` | 20 | 密度圆内至少的试炼刷怪笼数量 |
 | `--top-k` | 0 | 粗筛 top-K 聚类数上限（**默认 0=关闭**，所有粗聚类进 B 流，最高精度）。隐藏参数，仅高级用户显式启用截断 |
-| `--cluster-method` | density | 粗聚类方法：`density`（密度峰值 + KD-tree）或 `legacy`（并查集） |
-| `--max-cluster-size` | 0 | 密度聚类拆分阈值（0=自动） |
 | `--prefilter-mode` | cluster | 初筛方法：`cluster`（默认，先聚类）或 `grid`（GPU 网格聚合 + 无损密度剪枝，仅显式指定时启用） |
 | `--grid-size` | 0 | 网格边长（方块），`--prefilter-mode grid` 用（0=自动 `2*cluster-radius`） |
 | `--min-candidates-per-tile` | 0 | 稀疏分片预筛阈值：分片密度幸存候选数低于此值则跳过粗聚类（0=自动=`--min-structures`） |
@@ -510,7 +508,7 @@ run-cli.bat query --seed 188188 --coords 544,166 1000,-2000 --radius 1000
 git clone <repo>
 cd TrialSpawnerFinder
 ./gradlew clean test shadowJar
-# 独立 fat JAR: build/libs/trialfinder-1.3.0.jar
+# 独立 fat JAR: build/libs/trialfinder-1.4.0.jar
 # 可选: 重新生成预编译 cubin (需 nvcc + MSVC)
 ./gradlew compileCubin
 ```

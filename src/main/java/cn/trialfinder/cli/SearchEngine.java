@@ -16,7 +16,6 @@ import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -58,8 +57,6 @@ public final class SearchEngine {
             boolean debug,
             int tileSize,
             int tileOverlap,
-            String clusterMethod,
-            int maxClusterSize,
             int topK,
             String prefilterMode,
             int gridSize,
@@ -73,40 +70,31 @@ public final class SearchEngine {
         public Options(long seed, int searchRadius, int clusterRadius, int minStructures,
                        int minSpawners, boolean fullWorld, int threads, boolean debug) {
             this(seed, searchRadius, clusterRadius, minStructures, minSpawners,
-                    fullWorld, threads, debug, 100_000, 1_000, "density", 0, 0, "cluster", 0, null, 0, 0, 0, 0);
+                    fullWorld, threads, debug, 100_000, 1_000, 0, "cluster", 0, null, 0, 0, 0, 0);
         }
 
-        /** Backward-compatible constructor with tile settings (density, 0=auto maxClusterSize, no cache). */
+        /** Backward-compatible constructor with tile settings (no cache). */
         public Options(long seed, int searchRadius, int clusterRadius, int minStructures,
                        int minSpawners, boolean fullWorld, int threads, boolean debug,
                        int tileSize, int tileOverlap) {
             this(seed, searchRadius, clusterRadius, minStructures, minSpawners,
-                    fullWorld, threads, debug, tileSize, tileOverlap, "density", 0, 0, "cluster", 0, null, 0, 0, 0, 0);
+                    fullWorld, threads, debug, tileSize, tileOverlap, 0, "cluster", 0, null, 0, 0, 0, 0);
         }
 
-        /** Backward-compatible constructor with cluster settings (cluster prefilter default, no cache). */
+        /** Backward-compatible constructor without cache (13-arg, the old canonical form). */
         public Options(long seed, int searchRadius, int clusterRadius, int minStructures,
                        int minSpawners, boolean fullWorld, int threads, boolean debug,
-                       int tileSize, int tileOverlap, String clusterMethod, int maxClusterSize) {
-            this(seed, searchRadius, clusterRadius, minStructures, minSpawners,
-                    fullWorld, threads, debug, tileSize, tileOverlap, clusterMethod, maxClusterSize,
-                    0, "cluster", 0, null, 0, 0, 0, 0);
-        }
-
-        /** Backward-compatible constructor without cache (15-arg, the old canonical form). */
-        public Options(long seed, int searchRadius, int clusterRadius, int minStructures,
-                       int minSpawners, boolean fullWorld, int threads, boolean debug,
-                       int tileSize, int tileOverlap, String clusterMethod, int maxClusterSize,
+                       int tileSize, int tileOverlap,
                        int topK, String prefilterMode, int gridSize) {
             this(seed, searchRadius, clusterRadius, minStructures, minSpawners,
-                    fullWorld, threads, debug, tileSize, tileOverlap, clusterMethod, maxClusterSize,
+                    fullWorld, threads, debug, tileSize, tileOverlap,
                     topK, prefilterMode, gridSize, null, 0, 0, 0, 0);
         }
 
         /** Returns a copy with a shallow-jigsaw depth set (positive truncates decorative recursion). */
         public Options withJigsawDepth(int jigsawDepth) {
             return new Options(seed, searchRadius, clusterRadius, minStructures, minSpawners,
-                    fullWorld, threads, debug, tileSize, tileOverlap, clusterMethod, maxClusterSize,
+                    fullWorld, threads, debug, tileSize, tileOverlap,
                     topK, prefilterMode, gridSize, cache, minCandidatesPerTile, jigsawDepth,
                     predictDepth, predictGate);
         }
@@ -114,16 +102,9 @@ public final class SearchEngine {
         /** Returns a copy with the predict-and-verify prefilter enabled (0/0 = disabled). */
         public Options withPredict(int predictDepth, int predictGate) {
             return new Options(seed, searchRadius, clusterRadius, minStructures, minSpawners,
-                    fullWorld, threads, debug, tileSize, tileOverlap, clusterMethod, maxClusterSize,
+                    fullWorld, threads, debug, tileSize, tileOverlap,
                     topK, prefilterMode, gridSize, cache, minCandidatesPerTile, jigsawDepth,
                     predictDepth, predictGate);
-        }
-
-        /** Effective maxClusterSize: 0 means auto (max(200, totalCandidates/10)). */
-        public int effectiveMaxClusterSize(long totalCandidates) {
-            return this.maxClusterSize > 0
-                    ? this.maxClusterSize
-                    : (int) Math.max(200, totalCandidates / 10);
         }
 
         /** Effective grid cell size in blocks for {@code --prefilter-mode grid}: 0 = 2*clusterRadius. */
@@ -937,13 +918,7 @@ public final class SearchEngine {
             return List.of();
         }
 
-        List<CoarseCluster> clusters;
-        if ("legacy".equalsIgnoreCase(opts.clusterMethod())) {
-            clusters = coarseClusterAll(dense, 2 * opts.clusterRadius());
-        } else {
-            clusters = densityPeakCluster(dense, 2 * opts.clusterRadius(),
-                    opts.effectiveMaxClusterSize(dense.size()));
-        }
+        List<CoarseCluster> clusters = coarseClusterAll(dense, 2 * opts.clusterRadius());
 
         List<CoarseCluster> owned = new ArrayList<>();
         for (CoarseCluster cluster : clusters) {
@@ -1009,228 +984,6 @@ public final class SearchEngine {
             result.add(new CoarseCluster(members, members.get(0).point()));
         }
         return result;
-    }
-
-    // ---------------------------------------------------------------- density-aware coarse clustering
-
-    /**
-     * Density-peak coarse clustering (deterministic, no randomness).
-     *
-     * <p>Each candidate's density is its 2R-neighbour count (its {@link ScoredCandidate#score()}).
-     * A candidate points to the nearest candidate with a <i>strictly better</i> density score
-     * (tie-break by smaller X then Z, so the "better" relation is a total order → pointers are
-     * acyclic) within {@code coarseRadius}. Candidates with no such neighbour are density peaks;
-     * the basins of attraction of each peak form one coarse cluster.
-     *
-     * <p>Clusters larger than {@code maxClusterSize} are recursively re-clustered with a halved
-     * radius, separating sub-peaks while keeping high-density cores intact.
-     */
-    public static List<CoarseCluster> densityPeakCluster(
-            List<ScoredCandidate> candidates, int coarseRadius, int maxClusterSize) {
-        List<CoarseCluster> clusters = densityPeakClusterOnce(candidates, coarseRadius);
-        List<CoarseCluster> result = new ArrayList<>(clusters.size());
-        for (CoarseCluster cluster : clusters) {
-            if (cluster.size() > maxClusterSize && coarseRadius > 1) {
-                result.addAll(densityPeakCluster(cluster.members(),
-                        Math.max(1, coarseRadius / 2), maxClusterSize));
-            } else {
-                result.add(cluster);
-            }
-        }
-        return result;
-    }
-
-    /** One density-peak pass over the candidate set at a fixed radius. */
-    static List<CoarseCluster> densityPeakClusterOnce(List<ScoredCandidate> candidates, int coarseRadius) {
-        int n = candidates.size();
-        if (n == 0) {
-            return List.of();
-        }
-        // parent[i] = nearest strictly-better candidate within coarseRadius, or -1 if it's a peak.
-        // Uses the KD-tree spatial index for the range query (O(n log n) expected).
-        int[] parent = new int[n];
-        Arrays.fill(parent, -1);
-        SpatialIndex index = new SpatialIndex(candidates);
-        for (int i = 0; i < n; i++) {
-            parent[i] = index.nearestBetter(i, coarseRadius);
-        }
-
-        // Basins: follow pointer chains to peaks, path-compressed.
-        int[] root = new int[n];
-        Arrays.fill(root, -1);
-        Map<Integer, List<ScoredCandidate>> groups = new LinkedHashMap<>();
-        for (int i = 0; i < n; i++) {
-            int r = findPeak(parent, root, i);
-            groups.computeIfAbsent(r, ignored -> new ArrayList<>()).add(candidates.get(i));
-        }
-        List<CoarseCluster> result = new ArrayList<>(groups.size());
-        for (List<ScoredCandidate> members : groups.values()) {
-            members.sort(Comparator.comparing((ScoredCandidate c) -> c.point().x())
-                    .thenComparing(c -> c.point().z()));
-            result.add(new CoarseCluster(members, members.get(0).point()));
-        }
-        return result;
-    }
-
-    /** Strict total order: higher score is "better"; ties broken by smaller X then Z. */
-    private static boolean better(List<ScoredCandidate> candidates, int a, int b) {
-        int sa = candidates.get(a).score();
-        int sb = candidates.get(b).score();
-        if (sa != sb) {
-            return sa > sb;
-        }
-        BlockPoint pa = candidates.get(a).point();
-        BlockPoint pb = candidates.get(b).point();
-        if (pa.x() != pb.x()) {
-            return pa.x() < pb.x();
-        }
-        return pa.z() < pb.z();
-    }
-
-    private static int findPeak(int[] parent, int[] root, int i) {
-        int r = i;
-        while (parent[r] != -1) {
-            r = parent[r];
-        }
-        // path compression
-        int cur = i;
-        while (cur != r) {
-            int next = parent[cur];
-            parent[cur] = r;
-            cur = next;
-        }
-        root[i] = r;
-        return r;
-    }
-
-    // ---------------------------------------------------------------- KD-tree spatial index
-
-    /**
-     * Lightweight KD-tree over the scored candidates, used by {@link #densityPeakClusterOnce}
-     * (via the grid) or independently. Supports "nearest candidate strictly better than {@code i}
-     * within a max distance" queries with O(log n) expected pruning. Deterministic: ties are broken
-     * by the candidate index.
-     */
-    static final class SpatialIndex {
-        private final List<ScoredCandidate> candidates;
-        private final Node root;
-
-        SpatialIndex(List<ScoredCandidate> candidates) {
-            this.candidates = candidates;
-            int n = candidates.size();
-            Integer[] order = new Integer[n];
-            for (int i = 0; i < n; i++) {
-                order[i] = i;
-            }
-            this.root = build(order, 0, n, 0);
-        }
-
-        private Node build(Integer[] order, int from, int to, int depth) {
-            if (from >= to) {
-                return null;
-            }
-            int axis = depth % 2; // 0 = X, 1 = Z
-            // Sort the slice by axis to find the median (deterministic; index tie-break).
-            sortByAxis(order, from, to, axis);
-            int mid = (from + to) >>> 1;
-            int index = order[mid];
-            BlockPoint p = this.candidates.get(index).point();
-            boolean axisIsX = axis == 0;
-            Node node = new Node(index, axisIsX, axisIsX ? p.x() : p.z());
-            node.left = build(order, from, mid, depth + 1);
-            node.right = build(order, mid + 1, to, depth + 1);
-            return node;
-        }
-
-        private void sortByAxis(Integer[] order, int from, int to, int axis) {
-            Arrays.sort(order, from, to, (a, b) -> {
-                BlockPoint pa = this.candidates.get(a).point();
-                BlockPoint pb = this.candidates.get(b).point();
-                int va = axis == 0 ? pa.x() : pa.z();
-                int vb = axis == 0 ? pb.x() : pb.z();
-                if (va != vb) {
-                    return Integer.compare(va, vb);
-                }
-                return Integer.compare(a, b);
-            });
-        }
-
-        /**
-         * Returns the index of the nearest candidate strictly better than {@code target} within
-         * {@code maxDistance} (Euclidean), or -1 if none. Tie-break by candidate index.
-         * Stateless per call (thread-safe on an immutable index).
-         */
-        int nearestBetter(int target, int maxDistance) {
-            BlockPoint p = this.candidates.get(target).point();
-            long radiusSq = (long) maxDistance * maxDistance;
-            QueryState state = new QueryState();
-            search(this.root, p, target, radiusSq, state);
-            return state.bestIndex;
-        }
-
-        private static final class QueryState {
-            int bestIndex = -1;
-            long bestDistSq = Long.MAX_VALUE;
-        }
-
-        private void search(Node node, BlockPoint p, int target, long radiusSq, QueryState state) {
-            if (node == null) {
-                return;
-            }
-            long axisDelta;
-            if (node.axisIsX) {
-                axisDelta = p.x() - node.value;
-            } else {
-                axisDelta = p.z() - node.value;
-            }
-            Node near = axisDelta < 0 ? node.left : node.right;
-            Node far = axisDelta < 0 ? node.right : node.left;
-            search(near, p, target, radiusSq, state);
-            long d2 = axisDelta * axisDelta;
-            if (state.bestIndex == -1 || d2 <= state.bestDistSq) {
-                if (withinRadiusAndBetter(node.index, p, target, radiusSq)) {
-                    long nodeDist = distSq(node.index, p);
-                    if (state.bestIndex == -1 || nodeDist < state.bestDistSq
-                            || (nodeDist == state.bestDistSq && node.index < state.bestIndex)) {
-                        state.bestIndex = node.index;
-                        state.bestDistSq = nodeDist;
-                    }
-                }
-                search(far, p, target, radiusSq, state);
-            }
-        }
-
-        private boolean withinRadiusAndBetter(int j, BlockPoint p, int target, long radiusSq) {
-            if (j == target) {
-                return false;
-            }
-            long d2 = distSq(j, p);
-            if (d2 > radiusSq) {
-                return false;
-            }
-            return better(this.candidates, j, target);
-        }
-
-        private long distSq(int j, BlockPoint p) {
-            BlockPoint q = this.candidates.get(j).point();
-            long ox = (long) p.x() - q.x();
-            long oz = (long) p.z() - q.z();
-            return ox * ox + oz * oz;
-        }
-
-        private static final class Node {
-            final int index;
-            final int value;       // x or z depending on axis
-            final boolean axisIsX; // true = X axis, false = Z axis
-            Node left;
-            Node right;
-
-            Node(int index, boolean axisIsX, int value) {
-                this.index = index;
-                this.axisIsX = axisIsX;
-                this.value = value;
-            }
-        }
     }
 
     private static int find(int[] parent, int i) {

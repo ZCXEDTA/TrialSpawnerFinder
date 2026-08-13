@@ -135,7 +135,7 @@ class GpuAcceleratorTest {
         assertNotNull(gpu, "GPU should be available for this test; check CUDA driver");
         cn.trialfinder.cli.SearchEngine.Options opts = new cn.trialfinder.cli.SearchEngine.Options(
                 188188L, 2000, 128, 2, 1, false, 4, false, 100_000, 1_000,
-                "density", 0, 50, "grid", 256);
+                50, "grid", 256);
         var gpuResult = cn.trialfinder.cli.SearchEngine.runGrid(opts, gpu, new java.io.PrintStream(java.io.OutputStream.nullOutputStream()));
         var cpuResult = cn.trialfinder.cli.SearchEngine.runGrid(opts, new CpuAccelerator(), new java.io.PrintStream(java.io.OutputStream.nullOutputStream()));
         assertEquals(cpuResult.candidateCount(), gpuResult.candidateCount(), "candidate count");

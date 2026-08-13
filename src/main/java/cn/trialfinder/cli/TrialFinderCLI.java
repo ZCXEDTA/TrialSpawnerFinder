@@ -51,7 +51,7 @@ import java.util.function.Consumer;
         name = "trialfinder",
         mixinStandardHelpOptions = true,
         subcommands = {QueryCommand.class},
-        version = "TrialSpawnerFinder 1.3.0",
+        version = "TrialSpawnerFinder 1.4.0",
         description = "Find dense trial-chamber clusters for a seed. CUDA-accelerated when available.")
 public final class TrialFinderCLI implements Callable<Integer> {
 
@@ -93,14 +93,6 @@ public final class TrialFinderCLI implements Callable<Integer> {
             description = "Top-K coarse-cluster cap for B-flow (0 = disabled). Keeps only the K "
                     + "largest coarse clusters (all their member chambers) before running Jigsaw generation.")
     int topK;
-
-    @Option(names = "--cluster-method", defaultValue = "density",
-            description = "Coarse clustering method: density (density-peak + KD-tree) or legacy (union-find).")
-    String clusterMethod;
-
-    @Option(names = "--max-cluster-size", defaultValue = "0",
-            description = "Density clustering split threshold (0 = auto: max(200, totalCandidates/10)).")
-    int maxClusterSize;
 
     @Option(names = "--prefilter-mode", defaultValue = "cluster",
             description = "Prefilter method: cluster (default, density-peak + coarse clustering) "
@@ -212,7 +204,7 @@ public final class TrialFinderCLI implements Callable<Integer> {
         }
         SearchEngine.Options opts = new SearchEngine.Options(
                 seed, searchRadius, clusterRadius, minStructures, minSpawners,
-                fullWorld, threads, debug, tileSize, tileOverlap, clusterMethod, maxClusterSize,
+                fullWorld, threads, debug, tileSize, tileOverlap,
                 topK, prefilterMode, gridSize, cache, minCandidatesPerTile, jigsawDepth,
                 predictDepth, predictGate);
 
@@ -229,8 +221,6 @@ public final class TrialFinderCLI implements Callable<Integer> {
         if (topK > 0) {
             System.out.printf("top-k       : %,d coarse clusters (all member chambers)%n", topK);
         }
-        System.out.printf("cluster-mth : %s%s%n", clusterMethod,
-                maxClusterSize > 0 ? " (max-size " + maxClusterSize + ")" : " (auto max-size)");
         if (prefilterMode.equalsIgnoreCase("grid") && topK > 0) {
             System.out.printf("prefilter   : grid (cell %d blocks)%n", opts.effectiveGridSize());
         }
@@ -240,8 +230,8 @@ public final class TrialFinderCLI implements Callable<Integer> {
                 seed, searchRadius, clusterRadius, minStructures, minSpawners);
         System.out.printf("config      : fullWorld=%s threads=%d tileSize=%d tileOverlap=%d%n",
                 fullWorld, threads, tileSize, tileOverlap);
-        System.out.printf("config      : topK=%d clusterMethod=%s maxClusterSize=%d prefilterMode=%s gridSize=%d%n",
-                topK, clusterMethod, maxClusterSize, prefilterMode, opts.effectiveGridSize());
+        System.out.printf("config      : topK=%d prefilterMode=%s gridSize=%d%n",
+                topK, prefilterMode, opts.effectiveGridSize());
         System.out.printf("config      : outputPrefix=%s cache=%s cacheDir=%s jigsawDepth=%d biomeCheck=%s%n",
                 outputPrefix != null ? outputPrefix : "results-<时间戳>",
                 cacheEnabled ? "on" : "off", cacheDir, jigsawDepth, biomeCheck);
@@ -698,10 +688,6 @@ public final class TrialFinderCLI implements Callable<Integer> {
                 v -> this.tileOverlap = Integer.parseInt(v));
         applyIfUnset(parsed, properties, "top-k", "--top-k",
                 v -> this.topK = Integer.parseInt(v));
-        applyIfUnset(parsed, properties, "cluster-method", "--cluster-method",
-                v -> this.clusterMethod = v);
-        applyIfUnset(parsed, properties, "max-cluster-size", "--max-cluster-size",
-                v -> this.maxClusterSize = Integer.parseInt(v));
         applyIfUnset(parsed, properties, "prefilter-mode", "--prefilter-mode",
                 v -> this.prefilterMode = v);
         applyIfUnset(parsed, properties, "grid-size", "--grid-size",

@@ -164,15 +164,8 @@ chunkX = regionX*34 + nextInt(22);  chunkZ = regionZ*34 + nextInt(22)
 
 ### 4.3 粗聚类（top-K 前置，`SearchEngine`）
 
-**默认 `--cluster-method density`**（密度峰值 + KD-tree）：
-
-1. 每个候选的密度 = 2R 邻居数（GPU 粗筛分数）；
-2. 用 `SpatialIndex`（KD-tree）查询每个候选在 2R 内"密度更高"的最近密室（`better()` 用
-   `score 降序 → X 升序 → Z 升序` 定义全序，保证指针无环）；
-3. 链终止于**密度峰值**，每个峰值 + 吸引域 = 一个粗聚类；
-4. 超过 `maxClusterSize` 的粗聚类用 `radius/2` **递归拆分**，保留高密度核心。
-
-**`--cluster-method legacy`**（并查集）：距离 ≤ 2R 连通的候选合并成一个粗聚类。
+**并查集（`coarseClusterAll`）**：距离 ≤ 2R 连通的候选合并成一个粗聚类
+（空间网格 cell=2R，3×3 邻域查询）。
 
 > 正确性保证：粗聚类链接距离 = 2R，故任何最终精确聚类（成员两两 ≤ 2R）都**完整落在单个粗聚类内**
 > → 聚类级截断不会打散精确聚类。
@@ -278,8 +271,6 @@ chunkX = regionX*34 + nextInt(22);  chunkZ = regionZ*34 + nextInt(22)
 | `--tile-size` | 100000 | 分片边长（方块） | full-world |
 | `--tile-overlap` | 1000 | 分片重叠（方块） | full-world |
 | `--top-k` | 0 | 粗聚类 top-K 截断（0=不截断） | top-K |
-| `--cluster-method` | density | 粗聚类方法（density/legacy） | top-K |
-| `--max-cluster-size` | 0 | 密度聚类拆分阈值（0=自动 max(200, n/10)） | top-K |
 | `--output-prefix` | `results-<时间戳>` | 输出前缀（生成 .csv/.txt） | 全部 |
 | `--threads` | 4 | B 流 Jigsaw CPU 线程数 | 全部 |
 | `--debug` | false | 打印阶段耗时 | 全部 |
@@ -308,15 +299,6 @@ scan-threads / scan-shard-size-blocks`。
 （A 流 + 密度粗筛），不加速"去看"（B 流）。top-K 正是为压缩 B 流工作量而设：
 `--full-world --top-k 100000` 把 B 流限制在 10 万密室（分钟级）。
 
-### 9.2 性能对比（seed 188188, radius 10000, cluster-radius 1000, `--top-k 20`）
-
-| 方法 | 粗聚类数 | 保留 | 输出精确聚类 |
-|---|---|---|---|
-| legacy（并查集） | 1（巨型） | 1 | 21,988 |
-| density（max-size 50） | 51 | 20 | 11,793 |
-
-密度聚类把大半径下的"单巨型聚类"拆成密度核心，top-K 真正生效。
-
 ---
 
 ## 10. 已知限制与未来优化方向
@@ -325,9 +307,8 @@ scan-threads / scan-shard-size-blocks`。
 
 1. **B 流无法 GPU 化** → 全图精确扫描（`--full-world` 无 top-K）现实不可行（数月级）。
 2. **top-K 是近似**：被截断的粗聚类不输出；`--min-spawners` 越高越稳。
-3. **大 `--cluster-radius` 时密度聚类可能过度拆分**（需调 `--max-cluster-size`）。
-4. **`ExactCenterOptimizer` 仍是逐聚类串行**（每聚类 O(Z 行 × 差分)）。
-5. **GPU 依赖 NVIDIA**：无 GPU 自动回退 CPU，但无 GPU 时全图不可行。
+3. **`ExactCenterOptimizer` 仍是逐聚类串行**（每聚类 O(Z 行 × 差分)）。
+4. **GPU 依赖 NVIDIA**：无 GPU 自动回退 CPU，但无 GPU 时全图不可行。
 
 **未来优化方向**
 

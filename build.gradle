@@ -269,14 +269,3 @@ tasks.register('runSearchVerification', JavaExec) {
     args = vargs
 }
 
-
-tasks.register('compareCandidates', JavaExec) {
-    mainClass = 'cn.trialfinder.test.CompareCandidates'
-    classpath = sourceSets.test.runtimeClasspath
-}
-
-tasks.register('verifyChamber', JavaExec) {
-    mainClass = "cn.trialfinder.test.VerifyChamber2"
-    classpath = sourceSets.test.runtimeClasspath
-}
-
