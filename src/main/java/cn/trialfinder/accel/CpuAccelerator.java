@@ -127,7 +127,7 @@ public final class CpuAccelerator implements Accelerator {
     public List<BlockPoint> gridAggregateAndSelect(List<BlockPoint> candidates, int clusterRadius,
                                                    int gridSizeBlocks, int topK) {
         int n = candidates.size();
-        if (n == 0 || topK <= 0) {
+        if (n == 0) {
             return new ArrayList<>();
         }
         int[] scores = densityScores(candidates, clusterRadius);
@@ -171,7 +171,8 @@ public final class CpuAccelerator implements Accelerator {
             int byScore = Integer.compare(gridScores[b], gridScores[a]);
             return byScore != 0 ? byScore : Integer.compare(a, b);
         });
-        int keepCells = Math.min(topK, occupied.size());
+        // topK <= 0 means no truncation: keep every occupied cell (lossless).
+        int keepCells = topK <= 0 ? occupied.size() : Math.min(topK, occupied.size());
         java.util.Set<Integer> selected = new java.util.HashSet<>(occupied.subList(0, keepCells));
 
         List<BlockPoint> retained = new ArrayList<>();

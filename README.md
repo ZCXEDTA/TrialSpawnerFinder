@@ -35,11 +35,11 @@
 ./run-cli.sh --seed 188188 --search-radius 10000
 ```
 
-**示例**（30 万格半径找密集区）：
+**示例**
 ```powershell
-.\run-cli.bat --seed -6523988883445283364 --search-radius 300000 --cluster-radius 256 --min-structures 2 --min-spawners 40 --threads 14
+ .\run-cli.bat --seed -6523988883445283364 --search-radius 1000000 --cluster-radius 128  --min-structures 2 --min-spawners 40 --threads 14 --predict-depth 10 --predict-gate 18 --prefilter-mode=cluster
 ```
-大范围可以使用缓存(中断后快速恢复)
+大范围可以使用缓存(中断后快速恢复) 同种子通用,会产生cache文件夹,cache文件较大,需要手动清理
 ```powershell
 .\run-cli.bat --seed -6523988883445283364 --search-radius 1000000 --cluster-radius 160 --min-structures 2 --min-spawners 40 --threads 14 --check-top 100 --cache
 ```
@@ -52,11 +52,10 @@
 - `--min-structures`：初筛相连密室数量，根据半径调整
 - `--min-spawners`：最低笼子数量，建议为密室数量 × 20
 - `--threads`：调用 CPU 逻辑核心数
-- `--top-k`：粗筛 top-K 聚类数上限（0=关闭全量 B 流，超大半径极慢）。越大召回越高/精度越高但越慢，越小速度越快/精度损失越大
 
 结果写入当前目录 `results-<时间戳>.csv`（Excel 可直接打开）与 `.txt`（对齐阅读版）。
 
-**不想手动调参？** 直接省略 `--cluster-radius`/`--grid-size`/`--top-k`，`--auto-tune`（默认开启）会按 `--search-radius` 自动计算合理值。
+**不想手动调参？** 直接省略 `--cluster-radius`/`--grid-size`，`--auto-tune`（默认开启）会按 `--search-radius` 自动计算合理值。
 
 ---
 
@@ -79,10 +78,10 @@
 | `--cluster-radius` | 1000 | 密度聚类半径（方块）。**不要小于密室间距（~544 块）**，否则聚不出聚类、结果可能为空；100w 格内 160 格半径的三联密室已很少，一般 256 格配 `min-structures 3`、128 格配 `min-structures 2` |
 | `--min-structures` | 3 | 一个聚类内至少的密室数量 |
 | `--min-spawners` | 20 | 密度圆内至少的试炼刷怪笼数量 |
-| `--top-k` | auto | 粗筛 top-K 聚类数上限（0=关闭全量 B 流，超大半径极慢）。越大召回越高但越慢 |
+| `--top-k` | 0 | 粗筛 top-K 聚类数上限（**默认 0=关闭**，所有粗聚类进 B 流，最高精度）。隐藏参数，仅高级用户显式启用截断 |
 | `--cluster-method` | density | 粗聚类方法：`density`（密度峰值 + KD-tree）或 `legacy`（并查集） |
 | `--max-cluster-size` | 0 | 密度聚类拆分阈值（0=自动） |
-| `--prefilter-mode` | cluster | 初筛方法：`cluster`（默认）或 `grid`（GPU 网格聚合 + top-K，更快但近似） |
+| `--prefilter-mode` | cluster | 初筛方法：`cluster`（默认，先聚类）或 `grid`（GPU 网格聚合 + 无损密度剪枝，仅显式指定时启用） |
 | `--grid-size` | 0 | 网格边长（方块），`--prefilter-mode grid` 用（0=自动 `2*cluster-radius`） |
 | `--min-candidates-per-tile` | 0 | 稀疏分片预筛阈值：分片密度幸存候选数低于此值则跳过粗聚类（0=自动=`--min-structures`） |
 
@@ -92,15 +91,17 @@
 |---|---|---|
 | `--output-prefix` | `results-<时间戳>` | 输出文件前缀 |
 | `--threads` | 4 | B 流（Jigsaw 拼接）CPU 线程数（不要超过逻辑核心数） |
-| `--debug` | false | 打印进度与耗时（含 Top-K 各阶段日志） |
+| `--debug` | false | 打印进度与耗时 |
 | `--quiet` | false | 关闭所有进度条/阶段输出（只保留结果摘要） |
 | `--no-gpu` | false | 强制纯 CPU 路径 |
 | `--biome-check` | false | 生物群系过滤（**近似可用**，排除海洋/深海底密室，见下） |
 | `--cache` | false | 启用 B 流磁盘缓存（默认禁用，见下） |
 | `--cache-dir` | ./cache | 缓存目录（仅 `--cache` 时使用） |
 | `--jigsaw-depth` | 0 | 浅层 Jigsaw 拼接深度（0=原版 20；调小加速但可能丢刷怪笼） |
+| `--predict-depth` | 0 | 浅层预测深度（0=禁用；拼接跑到此深度时按浅层刷怪笼数判断） |
+| `--predict-gate` | 0 | 浅层刷怪笼门限，低于此数的密室在完整 B 流前丢弃（需 `--predict-depth > 0`） |
 | `--check-top` | 0 | 检查前 N 个结果的快速/慢速刷怪笼与宝库数量，追加到 CSV/TXT（0=不检查） |
-| `--auto-tune` / `--no-auto-tune` | 启用 | 自动计算未显式指定的 `--cluster-radius`/`--grid-size`/`--top-k` |
+| `--auto-tune` / `--no-auto-tune` | 启用 | 自动计算未显式指定的 `--cluster-radius`/`--grid-size`（`--top-k` 保持 0=关闭） |
 
 ### `--check-top`：检查前 N 个结果
 
@@ -132,13 +133,13 @@ TXT 对齐输出同样追加这 3 列。默认 `--check-top 0` 不检查（输�
 工作目录存在 `finder.properties` 时自动读取，作为**默认参数**；**命令行参数优先**，配置没有的用默认值。
 
 ```properties
-# 示例
+# 示例（键名见 TrialFinderCLI 属性映射；线程数用 scan-threads）
 seed=188188
 search-radius-blocks=10000
 cluster-radius-blocks=256
 min-structures=3
 min-spawners=20
-threads=8
+scan-threads=8
 ```
 
 命令行：`run-cli.bat --seed 114514` → seed 用 114514，其余用配置。
@@ -147,15 +148,15 @@ threads=8
 
 ## 自动调参（`--auto-tune`）
 
-`--cluster-radius`、`--grid-size`、`--top-k` 未显式指定时，按 `--search-radius` 自动计算：
+`--cluster-radius`、`--grid-size` 未显式指定时，按 `--search-radius` 自动计算（`--top-k` 保持 0=关闭，所有粗聚类进 B 流，最高精度）：
 
 ```
 cluster-radius = max(64, min(256, searchRadius / 200))
 grid-size      = 2 × cluster-radius
-top-k          = max(50, min(5000, searchRadius / 100))
+top-k          = 0（不截断，全部粗聚类进 B 流）
 ```
 
-- 半径 > 100,000 时自动切换到 GPU 网格预筛（`--prefilter-mode grid`）
+- 默认始终使用 `cluster` 预筛（grid 不会自动启用）；大半径如需要更快可显式指定 `--prefilter-mode grid`
 - `--debug` 下输出 `[auto-tune]` 日志
 - 配置里显式设的值不会被 auto-tune 覆盖
 
@@ -174,19 +175,25 @@ top-k          = max(50, min(5000, searchRadius / 100))
 | `get()` 快路径替代 `computeIfAbsent` | 14 线程 97→173 座/秒 |
 | 模板 NBT 预加载 | 消除并行首次加载竞争 |
 | `VoxelShape` 空间哈希 | 重叠检测 O(n²)→O(n) |
+| 模板按名缓存（palette 预建块名索引） | 刷怪笼/宝库扫描 O(块数)→O(命中数)，消除空扫描分配 |
+| **手写轻量布局**（`LightJigsawPlacement`：LightPiece + ConnectorBuffer + ElementMetadata 缓存） | 预测器单密室 15ms→8ms（~2×），RNG 逐位一致 |
 
 ### A 流（枚举 + 密度预筛）— GPU 直通
 
-诊断：GPU 枚举内核实际仅 ~2ms（GPU 已跑满）；瓶颈是 Java 侧千万级 `BlockPoint` 对象构造 + GC。GPU 直通把「枚举→密度→网格聚合→top-K」全在 GPU 完成，只回传少量候选。
+诊断：GPU 枚举内核实际仅 ~2ms（GPU 已跑满）；瓶颈是 Java 侧千万级 `BlockPoint` 对象构造 + GC。GPU 枚举把候选生成放在 GPU 侧完成，再交回密度预筛。
+
+### 无损密度预筛（`--prefilter-mode grid` 关键）
+
+grid 模式在 tile 并集上补了与 cluster 模式一致的 `pruneByDensity`（`score >= minStructures`）：候选的 2R 邻居数不足 `min-structures` 则不可能成为合格聚类成员，**剪掉它不改变结果**。大半径下这是主要提速——R=300000、CR=128、MS=2 时从 95.5 万候选剪到 2.58 万（37 倍），B 流从 50 分钟降到 ~2 分钟。
 
 ### 超大半径保护（自动分片）
 
 半径 100 万+ 时候选可达上千万到上亿，程序自动：
-- **自动分片**：每片 ~500 万候选自适应切片，逐片枚举 + grid 预筛 + 合并（内存有界）
+- **自动分片**：逐片枚举 + grid 预筛 + 合并（内存有界）
 - **候选预估 + WARN**：超 5000 万候选时启动打印建议
 - **分片进度 + ETA**：`[grid 自动分片] tile x/n ... ETA=...`
 - **密度网格自适应**：网格超限时无损放大格长
-- **召回率优化**：重叠分片 + 重叠 cell + 无损密度预筛
+- **召回率优化**：重叠分片 + 无损密度预筛
 
 
 ---
@@ -336,8 +343,8 @@ run-cli.bat query --seed 188188 --coords 544,166 1000,-2000 --radius 1000
 ### 复用搜索结果的完整流程
 
 ```bash
-# 1. 先做一次搜索
-run-cli.bat --seed 188188 --search-radius 100000 --cluster-radius 1000 --min-structures 3 --min-spawners 20 --top-k 200
+# 1. 先做一次搜索（默认全量，不截断）
+run-cli.bat --seed 188188 --search-radius 100000 --cluster-radius 1000 --min-structures 3 --min-spawners 20
 
 # 2. 对 top 结果做定点查询（用生成的 results CSV 作为查询点）
 run-cli.bat query --seed 188188 --file results-<时间戳>.csv --radius 1000 --output table
@@ -349,7 +356,7 @@ run-cli.bat query --seed 188188 --file results-<时间戳>.csv --radius 1000 --o
 
 ## B 流缓存（`--cache`，默认禁用）
 
-默认禁用是有意的：低命中率时磁盘 I/O 反而拖慢。**重复搜索同一种子 / 重叠查询点才建议开启**。每个密室（seed+chunk）缓存为 `spawners_<seed>_<chunkX>_<chunkZ>.json`，含刷怪笼坐标 + 怪物类型 + 配置 + 宝库位置。
+默认禁用是有意的：低命中率时磁盘 I/O 反而拖慢。**重复搜索同一种子 / 重叠查询点才建议开启**。每个种子一个紧凑二进制文件 `spawners_<seed>.bin`（同 seed 所有密室合一，含刷怪笼坐标 + 怪物类型 + 配置 + 宝库位置），避免成百上千个零散小文件。
 
 ### 断点快扫（缓存的核心价值）
 
@@ -367,16 +374,78 @@ run-cli.bat --seed 188188 --search-radius 300000 --cache --cache-dir ./cache
 - **调整参数后重扫**：即使改了 `--cluster-radius`/`--min-spawners` 等聚类参数，B 流生成结果不变，缓存依然命中——只重新聚类，不重新生成密室。
 - **大半径 / 全图扫描**：分片进度 + 缓存复用，中断恢复后进度从断点继续，不必从头跑。
 
-> 缓存文件按 seed+chunk 存储，与聚类/筛选参数无关，因此换参数不失效。首次扫描会把所有访问过的密室写入缓存，后续（含中断重扫）直接复用。
+> 缓存按 seed+密室坐标存储，与聚类/筛选参数无关，因此换参数不失效。首次扫描会把所有访问过的密室写入缓存（每 5000 个密室自动落盘 + 结束兜底落盘），中断后重扫从断点继续，后续（含中断重扫）直接复用。
 
-### 精度提醒：`--top-k`
+### 精度：默认全量（`--top-k` 已隐藏）
 
-`--top-k` 是粗筛聚类数上限，**越大召回越高、精度越高，但越慢**。默认 `auto-tune` 自动算（`max(50, min(5000, searchRadius/100))`）。**如果追求高精度/不漏结果**，请显式提高 `--top-k`（如 1000、5000，甚至更高）；需要更快则调低。
+默认**不启用 top-K 截断**——所有粗聚类都进 B 流生成，结果完全精确（只受 `--min-structures`/`--min-spawners` 过滤影响）。`--top-k` 参数已隐藏，仅高级用户可显式传入 `--top-k N` 启用截断（更快但可能漏结果）。
 
 ```bash
-# 高精度：加大 top-k（配合 --cache，重复扫描/调参时密室不会重算）
-run-cli.bat --seed 188188 --search-radius 300000 --top-k 5000 --cache --cache-dir ./cache
+# 默认全量 + 断点续扫（配合 --cache，重复扫描/调参时密室不会重算）
+run-cli.bat --seed 188188 --search-radius 300000 --cache --cache-dir ./cache
 ```
+
+---
+
+## 预测预筛 + 有界验证（`--predict-depth` / `--predict-gate`，默认禁用）
+
+大半径搜索时 B 流（完整 Jigsaw 拼接）是主要耗时。预测预筛在 **A 流密度筛选之后、完整 B 流之前**加一道快速筛选：对聚类成员用**手写轻量布局**预测刷怪笼上界（`LightJigsawPlacement`，与完整生成 RNG 逐位一致），按**流式分批**处理——每批预测 → 剪枝 → 生成存活簇 → 更新榜单截止（cutoff），后续批次剪掉更多。
+
+```
+A 流枚举 → 密度筛选 → 聚类 → [流式预测+剪枝+生成] → 榜单（top-100/结构数）
+```
+
+- **手写轻量布局**：LightPiece + ConnectorBuffer + ElementMetadata 缓存，预测器单密室 15ms→8ms，与完整生成**逐位一致**（不误剪）
+- **流式流水**：每批预测少量成员 → 立即用当前 top-100 cutoff 剪枝 → 生成存活簇，早期强结果抬高 cutoff，后期剪掉更多
+- **无损剪枝**：只剪"预测上界 < minSpawners"或"上界进不了 top-100 榜单"的簇，结果完全精确
+- **总进度显示**：预测 + 生成两阶段进度条（`[Density]`/`[B-Flow]`）+ ETA
+
+### 怎么选 gate（用标定脚本测你的场景）
+
+`gate` 的合适值**依赖具体场景**（种子、半径、`--min-spawners`）——没有万能值。用内置标定脚本对目标种子测出召回表：
+
+```bash
+./gradlew runPredictCalibration
+```
+
+输出示例（1908 密室，`--predict-depth` 行 × `gate` 列的**召回率**，即真实刷怪笼 ≥ gate 的密室中保留的比例）：
+
+```
+D     gate     kept       dropped    recall
+10    4        1908       0          1.000
+10    8        1896       2          0.999
+10    12       1731       25         0.986
+10    20       424        65         0.867
+```
+
+**读法**：
+- 目标是 `recall` 接近 1.0（不漏）时尽量多 `dropped`（加速）
+- `D=10`（覆盖 ~98% 刷怪笼）：`gate=8` 召回 0.999、`gate=12` 召回 0.986——推荐
+- 想要更大加速可提高 gate，但 recall 下降（会漏）
+- 想要绝对无损：不设预测参数（默认禁用），或 `--predict-gate` 设很小
+
+### 使用示例
+
+```bash
+# 大半径搜索，D=10 预测 + gate=12（召回 ~0.99，跳过低分簇）
+run-cli.bat --seed -6523988883445283364 --search-radius 1000000 --cluster-radius 128 \
+  --min-structures 2 --min-spawners 40 --threads 14 \
+  --predict-depth 10 --predict-gate 12
+
+# 更激进加速（可接受少量漏）
+run-cli.bat --seed -6523988883445283364 --search-radius 1000000 --cluster-radius 128 \
+  --min-structures 2 --min-spawners 40 --threads 14 \
+  --predict-depth 10 --predict-gate 20
+
+# finder.properties 配置
+# predict-depth=10
+# predict-gate=12
+```
+
+运行时的日志（`--debug`）：
+- 进度条：`[Density] 88% 7417/8441 | 306 座/秒 | ETA 00:00:03`（预测阶段）
+- 进度条：`[B-Flow] 20% 212/1046 | 148 座/秒 | ETA 00:00:05`（生成阶段）
+- 摘要：`[cluster-predict] 6451 clusters pruned by upper-bound prefilter (gate=18); 204 kept`
 
 ---
 
@@ -399,7 +468,7 @@ run-cli.bat --seed -6523988883445283364 --search-radius 300000 --cluster-radius 
 | 参数 | 值 | 含义 | 为什么这么设 |
 |---|---|---|---|
 | `--seed` | `-6523988883445283364` | 世界种子 | 目标种子 |
-| `--search-radius` | `300000` | 以 (0,0) 为圆心的搜索半径（方块），即 30 万格 | 覆盖较大范围；>10 万格自动切 GPU 网格预筛，速度可控 |
+| `--search-radius` | `300000` | 以 (0,0) 为圆心的搜索半径（方块），即 30 万格 | 覆盖较大范围；默认 cluster 预筛，如需更快可显式 `--prefilter-mode grid` |
 | `--cluster-radius` | `256` | 密度聚类半径（方块） | 密室间距约 544 块，256 格能聚起 2-3 个相邻密室。**不要 < 544 的一半**，否则聚不出聚类 |
 | `--min-structures` | `3` | 一个聚类内至少 3 个密室 | 与 `cluster-radius 256` 匹配（256 格内三联密室较常见；若用 128 格建议降为 2） |
 | `--min-spawners` | `60` | 密度圆内至少 70 个刷怪笼 | 较高阈值 → 只保留"真正密集"的区域，结果少而精（实测 10 个） |
@@ -408,14 +477,11 @@ run-cli.bat --seed -6523988883445283364 --search-radius 300000 --cluster-radius 
 
 **运行时会看到**：
 ```
-[auto-tune] search radius 300,000 is large -> prefilter-mode: cluster -> grid   ← 自动切 GPU 网格
-[auto-tune] top-k: 0 -> 3000                                                    ← 自动算 top-K
 config      : seed=-6523988883445283364 searchRadius=300000 ...                  ← 配置摘要
-[grid prefilter] candidates=955421 retained=9096 (top 3000 cells/tile)          ← 预筛结果
-candidates  : 955,421   pruned: 946,325   results: 10                            ← 最终结果
+candidates  : 955,421   pruned: 929,671   results: 10                            ← 最终结果
 ```
 
-> 想让结果更多？调低 `--min-spawners`（如 40）；想更快？减小 `--search-radius` 或调低 `--top-k`。
+> 想让结果更多？调低 `--min-spawners`（如 40）；想更快？减小 `--search-radius`。
 
 ### 其他常用示例
 
@@ -423,11 +489,11 @@ candidates  : 955,421   pruned: 946,325   results: 10                           
 # 快速验证（约 6 秒）
 run-cli.bat --seed 188188 --search-radius 1000000 --cluster-radius 256 --threads 14
 
-# 常规搜索（找密集区）
-run-cli.bat --seed 188188 --search-radius 100000 --cluster-radius 1000 --min-structures 3 --min-spawners 20 --top-k 200 --threads 14
+# 常规搜索（找密集区，默认全量不截断）
+run-cli.bat --seed 188188 --search-radius 100000 --cluster-radius 1000 --min-structures 3 --min-spawners 20 --threads 14
 
-# 全图流式扫描（推荐 Top-K 截断）
-run-cli.bat --seed 188188 --full-world --tile-size 100000 --tile-overlap 1000 --top-k 100000 --threads 14
+# 全图流式扫描（默认全量，内存有界逐分片）
+run-cli.bat --seed 188188 --full-world --tile-size 100000 --tile-overlap 1000 --threads 14
 
 # 生物群系过滤（排除海底密室）
 run-cli.bat --seed 188188 --search-radius 10000 --biome-check
@@ -457,6 +523,6 @@ cd TrialSpawnerFinder
 ## 已知限制
 
 - `--biome-check` 为近似（见上）
-- `--prefilter-mode grid` 是近似模式（按网格总密度而非真实刷怪笼排序）
+- `--prefilter-mode grid` 默认（`--top-k 0`）无损：保留所有占用网格单元 + 密度剪枝，结果与 cluster 模式一致；显式 `--top-k N` 会截断低密度单元（更快但可能漏结果）
 - GPU 原生库仅随附 Windows x86_64；Linux/macOS 用 `--no-gpu`
-- `--search-radius 10,000,000+` 即使自动分片也需数分钟到数小时；建议用 `--full-world --top-k` 或减小半径
+- `--search-radius 10,000,000+` 即使自动分片也需数分钟到数小时；建议用 `--full-world`（逐分片，内存有界）或减小半径

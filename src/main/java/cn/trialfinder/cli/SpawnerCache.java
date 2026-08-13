@@ -1,10 +1,12 @@
 package cn.trialfinder.cli;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -17,14 +19,22 @@ import java.util.concurrent.ConcurrentHashMap;
  * stores the chamber's trial-spawner block positions and their resolved mob types. Repeated
  * searches (or overlapping query points) reuse the cache instead of re-running Jigsaw assembly.
  *
- * <p>Thread-safe: reads are independent, writes go through a temp file + atomic move, and
- * same-key generation is serialized by {@link #lockFor} so a chamber is never assembled twice
- * concurrently.
+ * <p>All chambers for one seed live in a single compact binary file
+ * {@code spawners_<seed>.bin}, so a large search that generates tens of thousands of chambers
+ * produces exactly one file. The on-disk format is a {@link DataOutputStream} stream (magic +
+ * version + seed + chamber list), written atomically (temp file + move) on {@link #flush}.
  *
- * <p>Cache files live at {@code <dir>/spawners_<seed>_<chunkX>_<chunkZ>.json} in the shape
- * {@code {"seed":..,"chunkX":..,"chunkZ":..,"spawners":[{"x":..,"y":..,"z":..,"mob":"skeleton"}]}}.
+ * <p>Thread-safe: {@link #get} and {@link #put} operate on an in-memory map; {@link #put} marks
+ * the entry dirty and triggers a {@link #flush} every {@link #FLUSH_INTERVAL} new chambers (plus
+ * an explicit final {@link #flush} from the caller), so an interrupted scan resumes from the last
+ * flushed state. {@link #lockFor} serializes generation of the same chamber.
  */
 public final class SpawnerCache {
+
+    private static final int MAGIC = 0x53504331;      // "SPC1"
+    private static final int FORMAT_VERSION = 1;
+    /** Flush the file after this many new chambers (bounds loss on an interrupted scan). */
+    public static final int FLUSH_INTERVAL = 5000;
 
     /**
      * A single cached spawner: block position plus resolved mob type (e.g. {@code "skeleton"})
@@ -45,21 +55,17 @@ public final class SpawnerCache {
     public record CachedChamber(List<SpawnerData> spawners, List<VaultData> vaults) {
     }
 
-    /** JSON file layout — mirrors the on-disk cache file. */
-    public static final class CacheFile {
-        public long seed;
-        public int chunkX;
-        public int chunkZ;
-        public List<SpawnerData> spawners = new ArrayList<>();
-        /** Vault positions; {@code null} for cache files written by older builds. */
-        public List<VaultData> vaults = new ArrayList<>();
-    }
-
     private final Path dir;
     private final boolean enabled;
     private final boolean debug;
-    private final Gson gson = new GsonBuilder().create();
+    /** In-memory cache: seed -> (chunkKey -> chamber). */
+    private final ConcurrentHashMap<Long, ConcurrentHashMap<String, CachedChamber>> bySeed =
+            new ConcurrentHashMap<>();
+    /** Per-(seed,chunk) monitor so the same chamber is never assembled twice concurrently. */
     private final ConcurrentHashMap<String, Object> locks = new ConcurrentHashMap<>();
+    private final Object writeLock = new Object();
+    private final java.util.concurrent.atomic.AtomicInteger newSinceFlush =
+            new java.util.concurrent.atomic.AtomicInteger();
 
     /**
      * @param dir     cache directory (created on first write)
@@ -88,9 +94,66 @@ public final class SpawnerCache {
         return seed + "_" + chunkX + "_" + chunkZ;
     }
 
-    /** Per-key monitor so concurrent generation of the same chamber is serialized. */
+    private static String chunkKey(int chunkX, int chunkZ) {
+        return chunkX + "_" + chunkZ;
+    }
+
+    /** Per-chamber monitor so concurrent generation of the same chamber is serialized. */
     public Object lockFor(long seed, int chunkX, int chunkZ) {
         return this.locks.computeIfAbsent(key(seed, chunkX, chunkZ), ignored -> new Object());
+    }
+
+    /** Loads the seed's file into the in-memory map once (lazy, on first access). */
+    private ConcurrentHashMap<String, CachedChamber> ensureLoaded(long seed) {
+        return this.bySeed.computeIfAbsent(seed, s -> {
+            ConcurrentHashMap<String, CachedChamber> map = new ConcurrentHashMap<>();
+            Path file = fileFor(s);
+            if (Files.isRegularFile(file)) {
+                try (DataInputStream in = new DataInputStream(
+                        new BufferedInputStream(Files.newInputStream(file)))) {
+                    if (in.readInt() != MAGIC || in.readInt() != FORMAT_VERSION) {
+                        return map; // unsupported/corrupt — treat as empty
+                    }
+                    long fileSeed = in.readLong();
+                    if (fileSeed != s) {
+                        return map;
+                    }
+                    int count = in.readInt();
+                    if (count < 0 || count > 100_000_000) {
+                        return map;
+                    }
+                    for (int i = 0; i < count; i++) {
+                        int chunkX = in.readInt();
+                        int chunkZ = in.readInt();
+                        List<SpawnerData> spawners = new ArrayList<>();
+                        int spawnerCount = in.readInt();
+                        for (int j = 0; j < spawnerCount; j++) {
+                            int x = in.readInt();
+                            int y = in.readInt();
+                            int z = in.readInt();
+                            String mob = in.readUTF();
+                            String config = in.readUTF();
+                            spawners.add(new SpawnerData(x, y, z, mob, config.isEmpty() ? null : config));
+                        }
+                        List<VaultData> vaults = new ArrayList<>();
+                        int vaultCount = in.readInt();
+                        for (int j = 0; j < vaultCount; j++) {
+                            int x = in.readInt();
+                            int y = in.readInt();
+                            int z = in.readInt();
+                            boolean ominous = in.readBoolean();
+                            vaults.add(new VaultData(x, y, z, ominous));
+                        }
+                        map.put(chunkKey(chunkX, chunkZ), new CachedChamber(spawners, vaults));
+                    }
+                } catch (IOException e) {
+                    if (this.debug) {
+                        System.out.println("[DEBUG] cache read failed for " + file + ": " + e.getMessage());
+                    }
+                }
+            }
+            return map;
+        });
     }
 
     /** Returns the cached chamber for the key, or {@code null} when absent / disabled / corrupt. */
@@ -98,56 +161,101 @@ public final class SpawnerCache {
         if (!this.enabled) {
             return null;
         }
-        Path file = fileFor(seed, chunkX, chunkZ);
-        if (!Files.isRegularFile(file)) {
-            return null;
-        }
-        try {
-            CacheFile parsed = this.gson.fromJson(
-                    Files.readString(file, StandardCharsets.UTF_8), CacheFile.class);
-            if (parsed == null || parsed.seed != seed
-                    || parsed.chunkX != chunkX || parsed.chunkZ != chunkZ) {
-                return null;
-            }
-            List<VaultData> vaults = parsed.vaults != null ? parsed.vaults : List.of();
-            return new CachedChamber(parsed.spawners, vaults);
-        } catch (IOException | RuntimeException e) {
-            if (this.debug) {
-                System.out.println("[DEBUG] cache read failed for " + file + ": " + e.getMessage());
-            }
-            return null;
-        }
+        return ensureLoaded(seed).get(chunkKey(chunkX, chunkZ));
     }
 
-    /** Writes the spawners and vaults to the cache file (temp file + atomic move). */
+    /** Stores the chamber in the in-memory map; flushes the file every {@link #FLUSH_INTERVAL} new entries. */
     public void put(long seed, int chunkX, int chunkZ, List<SpawnerData> spawners, List<VaultData> vaults) {
         if (!this.enabled) {
             return;
         }
-        try {
-            Files.createDirectories(this.dir);
-            CacheFile file = new CacheFile();
-            file.seed = seed;
-            file.chunkX = chunkX;
-            file.chunkZ = chunkZ;
-            file.spawners = new ArrayList<>(spawners);
-            file.vaults = vaults != null ? new ArrayList<>(vaults) : new ArrayList<>();
-            Path target = fileFor(seed, chunkX, chunkZ);
-            Path tmp = this.dir.resolve(target.getFileName() + ".tmp");
-            Files.writeString(tmp, this.gson.toJson(file), StandardCharsets.UTF_8);
+        ConcurrentHashMap<String, CachedChamber> map = ensureLoaded(seed);
+        map.put(chunkKey(chunkX, chunkZ), new CachedChamber(
+                List.copyOf(spawners),
+                vaults != null ? List.copyOf(vaults) : List.of()));
+        if (this.newSinceFlush.incrementAndGet() >= FLUSH_INTERVAL) {
+            flush(seed);
+            this.newSinceFlush.set(0);
+        }
+    }
+
+    /** Writes the seed's full chamber set to its file atomically. */
+    public void flush(long seed) {
+        if (!this.enabled) {
+            return;
+        }
+        ConcurrentHashMap<String, CachedChamber> map = this.bySeed.get(seed);
+        if (map == null) {
+            return;
+        }
+        synchronized (this.writeLock) {
             try {
-                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
-                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
-            }
-        } catch (IOException e) {
-            if (this.debug) {
-                System.out.println("[DEBUG] cache write failed: " + e.getMessage());
+                Files.createDirectories(this.dir);
+                Path target = fileFor(seed);
+                Path tmp = this.dir.resolve(target.getFileName() + ".tmp");
+                try (DataOutputStream out = new DataOutputStream(
+                        new BufferedOutputStream(Files.newOutputStream(tmp)))) {
+                    out.writeInt(MAGIC);
+                    out.writeInt(FORMAT_VERSION);
+                    out.writeLong(seed);
+                    out.writeInt(map.size());
+                    // Deterministic order for a stable file (not required, but reproducible).
+                    List<ConcurrentHashMap.Entry<String, CachedChamber>> entries =
+                            new ArrayList<>(map.entrySet());
+                    entries.sort(java.util.Map.Entry.comparingByKey());
+                    for (ConcurrentHashMap.Entry<String, CachedChamber> entry : entries) {
+                        String[] parts = entry.getKey().split("_");
+                        int chunkX = Integer.parseInt(parts[0]);
+                        int chunkZ = Integer.parseInt(parts[1]);
+                        writeChamber(out, chunkX, chunkZ, entry.getValue());
+                    }
+                }
+                try {
+                    Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+                } catch (AtomicMoveNotSupportedException e) {
+                    Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+                }
+            } catch (IOException e) {
+                if (this.debug) {
+                    System.out.println("[DEBUG] cache write failed: " + e.getMessage());
+                }
             }
         }
     }
 
-    public Path fileFor(long seed, int chunkX, int chunkZ) {
-        return this.dir.resolve("spawners_" + key(seed, chunkX, chunkZ) + ".json");
+    /** Flushes every seed that has been touched in this JVM. */
+    public void flush() {
+        if (!this.enabled) {
+            return;
+        }
+        for (Long seed : this.bySeed.keySet()) {
+            flush(seed);
+        }
+        this.newSinceFlush.set(0);
+    }
+
+    private static void writeChamber(DataOutputStream out, int chunkX, int chunkZ,
+                                     CachedChamber chamber) throws IOException {
+        out.writeInt(chunkX);
+        out.writeInt(chunkZ);
+        out.writeInt(chamber.spawners().size());
+        for (SpawnerData s : chamber.spawners()) {
+            out.writeInt(s.x());
+            out.writeInt(s.y());
+            out.writeInt(s.z());
+            out.writeUTF(s.mob());
+            out.writeUTF(s.config() != null ? s.config() : "");
+        }
+        out.writeInt(chamber.vaults().size());
+        for (VaultData v : chamber.vaults()) {
+            out.writeInt(v.x());
+            out.writeInt(v.y());
+            out.writeInt(v.z());
+            out.writeBoolean(v.ominous());
+        }
+    }
+
+    public Path fileFor(long seed) {
+        return this.dir.resolve("spawners_" + seed + ".bin");
     }
 }

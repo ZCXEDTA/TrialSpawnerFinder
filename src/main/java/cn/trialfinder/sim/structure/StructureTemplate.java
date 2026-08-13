@@ -27,6 +27,11 @@ public class StructureTemplate {
     /** Per-rotation bounding box at ZERO origin (Mirror.NONE, ZERO pivot); moved to pos on demand. */
     private final java.util.EnumMap<Rotation, BoundingBox> rotatedBounds =
             new java.util.EnumMap<>(Rotation.class);
+    /** Per-rotation precomputed trial-spawner blocks (rotated, ZERO-based) — avoids re-transforming
+     * every assembled piece (the template's spawner blocks are 0-2, but the rotation transform +
+     * state rotation are recomputed per piece otherwise). */
+    private final java.util.EnumMap<Rotation, List<StructureBlockInfo>> rotatedSpawners =
+            new java.util.EnumMap<>(Rotation.class);
 
     public Vec3i getSize() {
         return this.size;
@@ -76,15 +81,53 @@ public class StructureTemplate {
     }
 
     public List<StructureBlockInfo> filterBlocks(BlockPos pos, StructurePlaceSettings settings, String blockName) {
-        List<StructureBlockInfo> result = new ArrayList<>();
         if (this.palettes.isEmpty()) {
-            return result;
+            return List.of();
         }
-        for (StructureBlockInfo info : this.palettes.get(0).blocks(blockName)) {
+        Palette palette = this.palettes.get(0);
+        if (!palette.contains(blockName)) {
+            // Most templates have no trial_spawner/vault blocks; avoid scanning the full block
+            // list and allocating an empty result for every assembled piece.
+            return List.of();
+        }
+        List<StructureBlockInfo> result = new ArrayList<>();
+        for (StructureBlockInfo info : palette.blocks(blockName)) {
             BlockPos transformed = calculateRelativePosition(settings, info.pos()).offset(pos);
             result.add(new StructureBlockInfo(transformed, info.state().rotate(settings.getRotation()), info.nbt()));
         }
         return result;
+    }
+
+    /**
+     * Returns the trial-spawner blocks rotated by {@code rotation}, at ZERO origin (no offset).
+     * Cached per rotation so the coordinate/state transform is computed once per template, not once
+     * per assembled piece. Callers offset by the piece position.
+     */
+    public List<StructureBlockInfo> getSpawnerBlocks(Rotation rotation) {
+        if (this.palettes.isEmpty()) {
+            return List.of();
+        }
+        return this.rotatedSpawners.computeIfAbsent(rotation, r -> {
+            StructurePlaceSettings settings = new StructurePlaceSettings().setRotation(r);
+            List<StructureBlockInfo> base = this.palettes.get(0).blocks("minecraft:trial_spawner");
+            if (base.isEmpty()) {
+                return List.of();
+            }
+            List<StructureBlockInfo> list = new ArrayList<>(base.size());
+            for (StructureBlockInfo info : base) {
+                BlockPos transformed = calculateRelativePosition(settings, info.pos());
+                list.add(new StructureBlockInfo(transformed, info.state().rotate(r), info.nbt()));
+            }
+            return List.copyOf(list);
+        });
+    }
+
+    /** Number of blocks with the given state name in this template's first palette (O(1)). */
+    public int countBlocks(String blockName) {
+        if (this.palettes.isEmpty()) {
+            return 0;
+        }
+        return this.palettes.get(0).count(blockName);
     }
 
     public Vec3i getSize(Rotation rotation) {
@@ -246,16 +289,23 @@ public class StructureTemplate {
     static final class Palette {
         private final List<StructureBlockInfo> blocks;
         private final List<JigsawBlockInfo> jigsaws;
+        /** Blocks grouped by block-state name, for O(1) filter lookups (built once at load). */
+        private final java.util.Map<String, List<StructureBlockInfo>> byName;
 
         Palette(List<StructureBlockInfo> blocks) {
             this.blocks = List.copyOf(blocks);
             List<JigsawBlockInfo> jigsaws = new ArrayList<>();
+            java.util.Map<String, List<StructureBlockInfo>> byName = new java.util.HashMap<>();
             for (StructureBlockInfo block : blocks) {
                 if (block.state().isJigsaw()) {
                     jigsaws.add(JigsawBlockInfo.of(block));
                 }
+                byName.computeIfAbsent(block.state().name(), ignored -> new ArrayList<>()).add(block);
             }
             this.jigsaws = List.copyOf(jigsaws);
+            // Freeze the per-name lists (mostly empty; the spawner/vault lookups are 0-2 entries).
+            byName.replaceAll((k, v) -> List.copyOf(v));
+            this.byName = java.util.Map.copyOf(byName);
         }
 
         List<JigsawBlockInfo> jigsaws() {
@@ -266,14 +316,18 @@ public class StructureTemplate {
             return this.blocks;
         }
 
+        /** True when any block has the given state name (fast membership check). */
+        boolean contains(String blockName) {
+            return this.byName.containsKey(blockName);
+        }
+
         List<StructureBlockInfo> blocks(String blockName) {
-            List<StructureBlockInfo> result = new ArrayList<>();
-            for (StructureBlockInfo block : this.blocks) {
-                if (block.state().name().equals(blockName)) {
-                    result.add(block);
-                }
-            }
-            return result;
+            return this.byName.getOrDefault(blockName, List.of());
+        }
+
+        /** Number of blocks with the given state name (O(1) via {@link #byName}). */
+        int count(String blockName) {
+            return this.byName.getOrDefault(blockName, List.of()).size();
         }
     }
 }

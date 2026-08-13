@@ -8,10 +8,15 @@ public final class JigsawBlock {
     }
 
     public static boolean canAttach(JigsawBlockInfo jigsaw, JigsawBlockInfo candidate) {
-        Direction front = getFrontFacing(jigsaw.info().state());
-        Direction candidateFront = getFrontFacing(candidate.info().state());
-        Direction top = getTopFacing(jigsaw.info().state());
-        Direction candidateTop = getTopFacing(candidate.info().state());
+        // One frontAndTop() lookup per state (the ConcurrentHashMap get is the dominant cost here;
+        // resolving both directions from a single lookup halves the lookups vs the per-direction
+        // getFrontFacing/getTopFacing helpers).
+        FrontAndTop a = jigsaw.info().state().frontAndTop();
+        FrontAndTop b = candidate.info().state().frontAndTop();
+        Direction front = a.front();
+        Direction candidateFront = b.front();
+        Direction top = a.top();
+        Direction candidateTop = b.top();
         JointType jointType = jigsaw.jointType();
         boolean rollable = jointType == JointType.ROLLABLE;
         return front == candidateFront.getOpposite()

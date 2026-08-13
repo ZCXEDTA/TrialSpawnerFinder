@@ -89,7 +89,7 @@ public final class TrialFinderCLI implements Callable<Integer> {
             description = "Full-world tile enumeration overlap in blocks (avoids boundary misses)")
     int tileOverlap;
 
-    @Option(names = "--top-k", defaultValue = "0",
+    @Option(names = "--top-k", defaultValue = "0", hidden = true,
             description = "Top-K coarse-cluster cap for B-flow (0 = disabled). Keeps only the K "
                     + "largest coarse clusters (all their member chambers) before running Jigsaw generation.")
     int topK;
@@ -104,7 +104,7 @@ public final class TrialFinderCLI implements Callable<Integer> {
 
     @Option(names = "--prefilter-mode", defaultValue = "cluster",
             description = "Prefilter method: cluster (default, density-peak + coarse clustering) "
-                    + "or grid (GPU grid aggregation + top-K cells, faster but coarser).")
+                    + "or grid (GPU grid aggregation + lossless density pruning, faster for large radii).")
     String prefilterMode;
 
     @Option(names = "--grid-size", defaultValue = "0",
@@ -150,6 +150,18 @@ public final class TrialFinderCLI implements Callable<Integer> {
                     + "truncates decorative recursion and speeds up B-flow but may drop spawners.")
     int jigsawDepth;
 
+    @Option(names = "--predict-depth", defaultValue = "0",
+            description = "Predict-and-verify prefilter depth (0 = disabled). A chamber whose "
+                    + "shallow checkpoint spawner count is below --predict-gate is dropped before "
+                    + "the full deep assembly; surviving chambers are generated exactly. Approximate: "
+                    + "may drop chambers whose real spawner count is higher.")
+    int predictDepth;
+
+    @Option(names = "--predict-gate", defaultValue = "0",
+            description = "Predict-and-verify gate (min predicted spawners to keep a chamber). "
+                    + "Only meaningful with --predict-depth > 0; 0 = keep everything (no effect).")
+    int predictGate;
+
     @Option(names = "--check-top", defaultValue = "0",
             description = "Inspect the top N results: per result, re-generate its chambers and tally "
                     + "fast/slow trial spawners and vaults (appended to the CSV/TXT output). "
@@ -157,7 +169,7 @@ public final class TrialFinderCLI implements Callable<Integer> {
     int checkTop;
 
     @Option(names = "--auto-tune", defaultValue = "true", fallbackValue = "true",
-            description = "Automatically tune cluster-radius/grid-size/top-k from search-radius "
+            description = "Automatically tune cluster-radius/grid-size from search-radius "
                     + "when unset (default: enabled)")
     boolean autoTune = true;
 
@@ -168,8 +180,6 @@ public final class TrialFinderCLI implements Callable<Integer> {
     /** True when {@code finder.properties} supplied a tuning-relevant value (so auto-tune must not override it). */
     private boolean clusterRadiusFromProperties;
     private boolean gridSizeFromProperties;
-    private boolean topKFromProperties;
-    private boolean prefilterModeFromProperties;
 
     private ProgressRenderer progress = new ProgressRenderer();
 
@@ -203,7 +213,8 @@ public final class TrialFinderCLI implements Callable<Integer> {
         SearchEngine.Options opts = new SearchEngine.Options(
                 seed, searchRadius, clusterRadius, minStructures, minSpawners,
                 fullWorld, threads, debug, tileSize, tileOverlap, clusterMethod, maxClusterSize,
-                topK, prefilterMode, gridSize, cache, minCandidatesPerTile, jigsawDepth);
+                topK, prefilterMode, gridSize, cache, minCandidatesPerTile, jigsawDepth,
+                predictDepth, predictGate);
 
         System.out.println("=== Trial Chambers Finder ===");
         System.out.println("accelerator : " + acc.name());
@@ -218,10 +229,8 @@ public final class TrialFinderCLI implements Callable<Integer> {
         if (topK > 0) {
             System.out.printf("top-k       : %,d coarse clusters (all member chambers)%n", topK);
         }
-        if (topK > 0) {
-            System.out.printf("cluster-mth : %s%s%n", clusterMethod,
-                    maxClusterSize > 0 ? " (max-size " + maxClusterSize + ")" : " (auto max-size)");
-        }
+        System.out.printf("cluster-mth : %s%s%n", clusterMethod,
+                maxClusterSize > 0 ? " (max-size " + maxClusterSize + ")" : " (auto max-size)");
         if (prefilterMode.equalsIgnoreCase("grid") && topK > 0) {
             System.out.printf("prefilter   : grid (cell %d blocks)%n", opts.effectiveGridSize());
         }
@@ -236,6 +245,7 @@ public final class TrialFinderCLI implements Callable<Integer> {
         System.out.printf("config      : outputPrefix=%s cache=%s cacheDir=%s jigsawDepth=%d biomeCheck=%s%n",
                 outputPrefix != null ? outputPrefix : "results-<时间戳>",
                 cacheEnabled ? "on" : "off", cacheDir, jigsawDepth, biomeCheck);
+        System.out.printf("config      : predictDepth=%d predictGate=%d%n", predictDepth, predictGate);
         System.out.printf("config      : gpu=%s debug=%s quiet=%s minCandidatesPerTile=%d%n",
                 noGpu ? "off" : "on", debug, quiet, opts.effectiveMinCandidatesPerTile());
         System.out.println("config      : ----");
@@ -249,10 +259,6 @@ public final class TrialFinderCLI implements Callable<Integer> {
         }
 
         boolean grid = prefilterMode.equalsIgnoreCase("grid");
-        if (grid && topK <= 0) {
-            System.out.println("--prefilter-mode grid 需要 --top-k > 0；已回退到 cluster 模式。");
-            grid = false;
-        }
         if (grid) {
             if (fullWorld) {
                 return runFullWorld(acc, opts);   // runFullWorld dispatches per-tile to searchRegionGrid
@@ -592,18 +598,17 @@ public final class TrialFinderCLI implements Callable<Integer> {
     }
 
     /**
-     * Auto-tunes {@code cluster-radius}, {@code grid-size} and {@code top-k} from
-     * {@code search-radius} when they were not explicitly set (CLI arg or finder.properties) and
-     * {@code --auto-tune} is enabled (the default). Balances speed vs recall:
+     * Auto-tunes {@code cluster-radius} and {@code grid-size} from {@code search-radius} when they
+     * were not explicitly set (CLI arg or finder.properties) and {@code --auto-tune} is enabled
+     * (the default). {@code top-k} is intentionally not tuned: it stays 0 (disabled) so every
+     * coarse cluster runs through B flow for maximum precision.
      *
      * <pre>
      *   cluster-radius = max(64, min(256, searchRadius / 200))
      *   grid-size      = 2 * cluster-radius
-     *   top-k          = max(50, min(5000, searchRadius / 100))
      * </pre>
      *
-     * <p>Skipped in {@code --full-world} mode: {@code search-radius} is ignored there, and the
-     * top-K cap for a full-world scan should be chosen explicitly (e.g. {@code --top-k 100000}).
+     * <p>Skipped in {@code --full-world} mode: {@code search-radius} is ignored there.
      * Tuned values are logged under {@code --debug}.
      */
     private void applyAutoTune() {
@@ -613,24 +618,16 @@ public final class TrialFinderCLI implements Callable<Integer> {
         if (this.fullWorld) {
             if (this.debug) {
                 System.out.println("[auto-tune] skipped for --full-world (search-radius is ignored); "
-                        + "pick --cluster-radius/--top-k explicitly");
+                        + "pick --cluster-radius explicitly");
             }
             return;
         }
         CommandLine.ParseResult parsed = this.spec.commandLine().getParseResult();
 
-        // Very large search radii make the cluster-mode density-peak KD-tree clustering prohibitive
-        // (millions of candidates). Auto-switch to the GPU grid prefilter for throughput, unless the
-        // user explicitly chose a prefilter mode (CLI or finder.properties).
-        if (this.searchRadius > 100_000
-                && !parsed.hasMatchedOption("--prefilter-mode")
-                && !this.prefilterModeFromProperties) {
-            if (this.debug) {
-                System.out.printf("[auto-tune] search radius %,d is large -> prefilter-mode: cluster -> grid%n",
-                        this.searchRadius);
-            }
-            this.prefilterMode = "grid";
-        }
+        // Note: grid prefilter is never selected by default — it is used only when the user
+        // explicitly passes --prefilter-mode grid (CLI or finder.properties). Large search radii
+        // keep the cluster prefilter (density-peak + coarse clustering) so the default result set
+        // stays exact; users who want the faster GPU grid path opt in explicitly.
 
         boolean clusterExplicit = parsed.hasMatchedOption("--cluster-radius")
                 || this.clusterRadiusFromProperties;
@@ -652,17 +649,9 @@ public final class TrialFinderCLI implements Callable<Integer> {
             }
             this.gridSize = tuned;
         }
-        if (!parsed.hasMatchedOption("--top-k") && !this.topKFromProperties) {
-            // Higher top-K = lower prefilter loss (more cells/candidates survive), at the cost of
-            // more B-flow work. Scales with radius: bigger searches keep a larger share of cells.
-            int tuned = Math.max(50, Math.min(5000, this.searchRadius / 100));
-            if (tuned != this.topK) {
-                if (this.debug) {
-                    System.out.printf("[auto-tune] top-k: %d -> %d%n", this.topK, tuned);
-                }
-                this.topK = tuned;
-            }
-        }
+        // top-k is intentionally NOT auto-tuned: the default (0 = disabled) runs every coarse
+        // cluster through B flow for maximum precision. Users who explicitly want truncation set
+        // --top-k themselves.
     }
 
     /**
@@ -708,19 +697,13 @@ public final class TrialFinderCLI implements Callable<Integer> {
         applyIfUnset(parsed, properties, "tile-overlap-blocks", "--tile-overlap",
                 v -> this.tileOverlap = Integer.parseInt(v));
         applyIfUnset(parsed, properties, "top-k", "--top-k",
-                v -> {
-                    this.topK = Integer.parseInt(v);
-                    this.topKFromProperties = true;
-                });
+                v -> this.topK = Integer.parseInt(v));
         applyIfUnset(parsed, properties, "cluster-method", "--cluster-method",
                 v -> this.clusterMethod = v);
         applyIfUnset(parsed, properties, "max-cluster-size", "--max-cluster-size",
                 v -> this.maxClusterSize = Integer.parseInt(v));
         applyIfUnset(parsed, properties, "prefilter-mode", "--prefilter-mode",
-                v -> {
-                    this.prefilterMode = v;
-                    this.prefilterModeFromProperties = true;
-                });
+                v -> this.prefilterMode = v);
         applyIfUnset(parsed, properties, "grid-size", "--grid-size",
                 v -> {
                     this.gridSize = Integer.parseInt(v);
@@ -730,6 +713,10 @@ public final class TrialFinderCLI implements Callable<Integer> {
                 v -> this.minCandidatesPerTile = Integer.parseInt(v));
         applyIfUnset(parsed, properties, "jigsaw-depth", "--jigsaw-depth",
                 v -> this.jigsawDepth = Integer.parseInt(v));
+        applyIfUnset(parsed, properties, "predict-depth", "--predict-depth",
+                v -> this.predictDepth = Integer.parseInt(v));
+        applyIfUnset(parsed, properties, "predict-gate", "--predict-gate",
+                v -> this.predictGate = Integer.parseInt(v));
 
         // Output / behaviour.
         applyIfUnset(parsed, properties, "output-prefix", "--output-prefix",

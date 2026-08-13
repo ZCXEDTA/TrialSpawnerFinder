@@ -115,8 +115,10 @@ public final class QueryCommand implements Callable<Integer> {
 
         Accelerator acc = TrialFinderCLI.selectAccelerator(this.noGpu);
         SimChamberGenerator generator = SimChamberGenerator.fromClasspath();
+        SpawnerCache cache = null;
         if (this.cacheEnabled) {
-            generator.setCache(new SpawnerCache(Path.of(this.cacheDir), true, this.debug));
+            cache = new SpawnerCache(Path.of(this.cacheDir), true, this.debug);
+            generator.setCache(cache);
         }
 
         System.out.println("=== Trial Chambers Query ===");
@@ -131,6 +133,9 @@ public final class QueryCommand implements Callable<Integer> {
         }
         if (this.debug) {
             System.out.printf("[query] %d points in %.1fs%n", points.size(), (System.nanoTime() - started) / 1e9);
+        }
+        if (cache != null) {
+            cache.flush();
         }
         render(results);
         return 0;

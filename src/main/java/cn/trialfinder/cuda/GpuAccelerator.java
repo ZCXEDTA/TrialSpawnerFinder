@@ -258,7 +258,7 @@ public final class GpuAccelerator implements Accelerator {
     private List<BlockPoint> gridAggregateAndSelectGpu(List<BlockPoint> candidates, int clusterRadius,
                                                        int gridSizeBlocks, int topK) {
         int n = candidates.size();
-        if (n == 0 || topK <= 0) {
+        if (n == 0) {
             return new ArrayList<>();
         }
         int[] scores = densityScores(candidates, clusterRadius);
@@ -355,7 +355,8 @@ public final class GpuAccelerator implements Accelerator {
             int byScore = Integer.compare(gridScores[b], gridScores[a]);
             return byScore != 0 ? byScore : Integer.compare(a, b);
         });
-        int keepCells = Math.min(topK, occupied.size());
+        // topK <= 0 means no truncation: keep every occupied cell (lossless).
+        int keepCells = topK <= 0 ? occupied.size() : Math.min(topK, occupied.size());
         java.util.Set<Integer> selected = new java.util.HashSet<>(occupied.subList(0, keepCells));
 
         List<BlockPoint> retained = new ArrayList<>();
@@ -638,7 +639,8 @@ public final class GpuAccelerator implements Accelerator {
                 int by = Integer.compare(gs[b], gs[a]);
                 return by != 0 ? by : Integer.compare(a, b);
             });
-            int keep = Math.min(topK, gCells);
+            // topK <= 0 means no truncation: scan every cell and keep all with a density score > 0.
+            int keep = topK <= 0 ? gCells : Math.min(topK, gCells);
             byte[] selected = new byte[gCells];
             for (int i = 0; i < keep; i++) {
                 if (gs[sortedCells[i]] > 0) {

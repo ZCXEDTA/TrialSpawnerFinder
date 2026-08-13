@@ -245,6 +245,14 @@ tasks.register('runStandalone', JavaExec) {
     args = project.hasProperty('seed') ? [project.property('seed').toString()] : []
 }
 
+// Calibrates the predict-and-verify checkpoint depth: prints (depth, gate) recall table.
+tasks.register('runPredictCalibration', JavaExec) {
+    group = 'verification'
+    description = 'Runs the predict-and-verify checkpoint calibration (depth/gate recall table).'
+    mainClass = 'cn.trialfinder.test.SimChamberPredictCalibration'
+    classpath = sourceSets.test.runtimeClasspath
+}
+
 // Full-pipeline verification: enumerate + generate + density, compared against a run.bat log.
 // Override params via -PverifSeed=... -PverifRadius=... etc.
 tasks.register('runSearchVerification', JavaExec) {
@@ -260,3 +268,15 @@ tasks.register('runSearchVerification', JavaExec) {
     if (project.hasProperty('verifMinSpawners')) vargs += ['--min-spawners', project.property('verifMinSpawners')]
     args = vargs
 }
+
+
+tasks.register('compareCandidates', JavaExec) {
+    mainClass = 'cn.trialfinder.test.CompareCandidates'
+    classpath = sourceSets.test.runtimeClasspath
+}
+
+tasks.register('verifyChamber', JavaExec) {
+    mainClass = "cn.trialfinder.test.VerifyChamber2"
+    classpath = sourceSets.test.runtimeClasspath
+}
+

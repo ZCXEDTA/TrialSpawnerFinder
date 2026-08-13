@@ -65,13 +65,15 @@ public final class SearchEngine {
             int gridSize,
             SpawnerCache cache,
             int minCandidatesPerTile,
-            int jigsawDepth) {
+            int jigsawDepth,
+            int predictDepth,
+            int predictGate) {
 
         /** Backward-compatible constructor (defaults tileSize=100000, tileOverlap=1000, density, 0=auto, no cache). */
         public Options(long seed, int searchRadius, int clusterRadius, int minStructures,
                        int minSpawners, boolean fullWorld, int threads, boolean debug) {
             this(seed, searchRadius, clusterRadius, minStructures, minSpawners,
-                    fullWorld, threads, debug, 100_000, 1_000, "density", 0, 0, "cluster", 0, null, 0, 0);
+                    fullWorld, threads, debug, 100_000, 1_000, "density", 0, 0, "cluster", 0, null, 0, 0, 0, 0);
         }
 
         /** Backward-compatible constructor with tile settings (density, 0=auto maxClusterSize, no cache). */
@@ -79,7 +81,7 @@ public final class SearchEngine {
                        int minSpawners, boolean fullWorld, int threads, boolean debug,
                        int tileSize, int tileOverlap) {
             this(seed, searchRadius, clusterRadius, minStructures, minSpawners,
-                    fullWorld, threads, debug, tileSize, tileOverlap, "density", 0, 0, "cluster", 0, null, 0, 0);
+                    fullWorld, threads, debug, tileSize, tileOverlap, "density", 0, 0, "cluster", 0, null, 0, 0, 0, 0);
         }
 
         /** Backward-compatible constructor with cluster settings (cluster prefilter default, no cache). */
@@ -88,7 +90,7 @@ public final class SearchEngine {
                        int tileSize, int tileOverlap, String clusterMethod, int maxClusterSize) {
             this(seed, searchRadius, clusterRadius, minStructures, minSpawners,
                     fullWorld, threads, debug, tileSize, tileOverlap, clusterMethod, maxClusterSize,
-                    0, "cluster", 0, null, 0, 0);
+                    0, "cluster", 0, null, 0, 0, 0, 0);
         }
 
         /** Backward-compatible constructor without cache (15-arg, the old canonical form). */
@@ -98,14 +100,23 @@ public final class SearchEngine {
                        int topK, String prefilterMode, int gridSize) {
             this(seed, searchRadius, clusterRadius, minStructures, minSpawners,
                     fullWorld, threads, debug, tileSize, tileOverlap, clusterMethod, maxClusterSize,
-                    topK, prefilterMode, gridSize, null, 0, 0);
+                    topK, prefilterMode, gridSize, null, 0, 0, 0, 0);
         }
 
         /** Returns a copy with a shallow-jigsaw depth set (positive truncates decorative recursion). */
         public Options withJigsawDepth(int jigsawDepth) {
             return new Options(seed, searchRadius, clusterRadius, minStructures, minSpawners,
                     fullWorld, threads, debug, tileSize, tileOverlap, clusterMethod, maxClusterSize,
-                    topK, prefilterMode, gridSize, cache, minCandidatesPerTile, jigsawDepth);
+                    topK, prefilterMode, gridSize, cache, minCandidatesPerTile, jigsawDepth,
+                    predictDepth, predictGate);
+        }
+
+        /** Returns a copy with the predict-and-verify prefilter enabled (0/0 = disabled). */
+        public Options withPredict(int predictDepth, int predictGate) {
+            return new Options(seed, searchRadius, clusterRadius, minStructures, minSpawners,
+                    fullWorld, threads, debug, tileSize, tileOverlap, clusterMethod, maxClusterSize,
+                    topK, prefilterMode, gridSize, cache, minCandidatesPerTile, jigsawDepth,
+                    predictDepth, predictGate);
         }
 
         /** Effective maxClusterSize: 0 means auto (max(200, totalCandidates/10)). */
@@ -120,9 +131,9 @@ public final class SearchEngine {
             return this.gridSize > 0 ? this.gridSize : 2 * this.clusterRadius;
         }
 
-        /** True when the GPU grid-aggregation prefilter is requested (and top-K is set). */
+        /** True when the grid prefilter is requested (top-K truncation is optional; 0 = lossless). */
         public boolean isGridPrefilter() {
-            return "grid".equalsIgnoreCase(this.prefilterMode) && this.topK > 0;
+            return "grid".equalsIgnoreCase(this.prefilterMode);
         }
 
         /**
@@ -276,47 +287,30 @@ public final class SearchEngine {
         // ---------------------------------------------------------------- B flow (CPU parallel)
         Set<BlockPoint> required = new TreeSet<>();
         unique.values().forEach(c -> required.addAll(c.structures()));
+        Set<BlockPoint> bflow = required;
         if (biomeChecker != null && biomeChecker.isAvailable()) {
-            long before = required.size();
-            required.removeIf(p -> !biomeChecker.isTrialChambersValid(opts.seed(),
+            long before = bflow.size();
+            bflow.removeIf(p -> !biomeChecker.isTrialChambersValid(opts.seed(),
                     Math.floorDiv(p.x(), 16), Math.floorDiv(p.z(), 16)));
             if (opts.debug()) {
-                out.printf("[biome-check] %d -> %d candidates passed%n", before, required.size());
+                out.printf("[biome-check] %d -> %d candidates passed%n", before, bflow.size());
             }
         }
-        progress.setStage(ProgressRenderer.STAGE_B_FLOW);
-        Map<BlockPoint, List<BlockPos>> spawnersByChamber = generateAll(generator, opts, required, progress);
-        int totalSpawners = spawnersByChamber.values().stream().mapToInt(List::size).sum();
+        // Cluster-level prune-and-verify (after A-flow clustering, before full B-flow): for each
+        // cluster, predict the spawner upper bound (full layout, no block scan) and drop the cluster
+        // when its upper bound cannot make the top-100 output. Batches are processed in descending
+        // cluster size so the accumulator's cutoff tightens as it fills.
+        List<SearchResult> results;
+        if (opts.predictDepth() > 0 && opts.predictGate() > 0) {
+            results = clusterPruneAndGenerate(generator, opts, new ArrayList<>(unique.values()),
+                    progress, started);
+        } else {
+            progress.setStage(ProgressRenderer.STAGE_B_FLOW);
+            Map<BlockPoint, List<BlockPos>> spawnersByChamber = generateAll(generator, opts, bflow, progress);
+            int totalSpawners = spawnersByChamber.values().stream().mapToInt(List::size).sum();
+            results = scoreClusters(new ArrayList<>(unique.values()), spawnersByChamber, opts, progress);
+        }
 
-        // ---------------------------------------------------------------- density scoring
-        progress.setStage(ProgressRenderer.STAGE_STAT);
-        List<SearchResult> results = new ArrayList<>();
-        for (CircleClusters.StructureCluster cluster : unique.values()) {
-            List<BlockPoint> structures = cluster.structures().stream()
-                    .filter(spawnersByChamber::containsKey)
-                    .sorted()
-                    .toList();
-            if (structures.size() < opts.minStructures()) {
-                continue;
-            }
-            Set<SpawnerPoint> clusterSpawners = new TreeSet<>();
-            structures.forEach(s -> {
-                for (BlockPos p : spawnersByChamber.get(s)) {
-                    clusterSpawners.add(new SpawnerPoint(p.getX(), p.getY(), p.getZ()));
-                }
-            });
-            try {
-                ExactCenterOptimizer.CenterScore score = ExactCenterOptimizer.find(
-                        AreaShape.CIRCLE, opts.clusterRadius(), structures, clusterSpawners);
-                if (score.spawners() >= opts.minSpawners()) {
-                    results.add(new SearchResult(score.x(), score.z(), structures.size(),
-                            score.spawners(), structures));
-                }
-            } catch (IllegalStateException ignored) {
-                // no integer centre covers all structures — skip (matches original behaviour)
-            }
-        }
-        progress.stageDone(results.size());
         progress.setStage(ProgressRenderer.STAGE_SORT);
         results.sort(java.util.Comparator.naturalOrder());
 
@@ -329,6 +323,7 @@ public final class SearchEngine {
                 .toList();
         progress.stageDone(limited.size());
 
+        int totalSpawners = results.stream().mapToInt(SearchResult::spawnerCount).sum();
         if (opts.debug()) {
             out.printf("[scoring] qualifying=%d truncated=%d totalSpawners=%d  (%.1fs total)%n",
                     results.size(), limited.size(), totalSpawners, (System.nanoTime() - started) / 1e9);
@@ -452,14 +447,24 @@ public final class SearchEngine {
         progress.stageDone((int) Math.min(Integer.MAX_VALUE, candidateCount));
 
         progress.setStage(ProgressRenderer.STAGE_DENSITY);
-        // Each tile already kept its top-K cells; the overlapping-tile union (HashSet dedup) is the
-        // retained set. No second global truncation — that would drop cluster members that were
-        // only present in one tile's top-K, hurting recall.
-        List<BlockPoint> retained = new ArrayList<>(merged);
+        // Lossless density pre-filter over the tile-union set: a candidate with fewer than
+        // minStructures neighbours within 2R cannot be a member of any qualifying cluster, so
+        // dropping it never changes the result — it only shrinks the B-flow input. This is the
+        // same pruneByDensity the cluster pipeline applies (and per-region searchRegionGrid), and
+        // it is the main lever for huge radii where top-K=0 would otherwise push every candidate
+        // into B flow.
+        List<BlockPoint> unionList = new ArrayList<>(merged);
+        boolean[] keep = acc.pruneByDensity(unionList, opts.clusterRadius(), opts.minStructures());
+        List<BlockPoint> retained = new ArrayList<>(unionList.size());
+        for (int idx = 0; idx < unionList.size(); idx++) {
+            if (keep[idx]) {
+                retained.add(unionList.get(idx));
+            }
+        }
         int prunedCount = (int) Math.min(Integer.MAX_VALUE, candidateCount - retained.size());
         if (opts.debug()) {
-            out.printf("[grid prefilter] candidates=%d retained=%d (tile-union, top %d cells/tile)%n",
-                    candidateCount, retained.size(), opts.topK());
+            out.printf("[grid prefilter] candidates=%d retained=%d (tile-union, score>=%d)%n",
+                    candidateCount, retained.size(), opts.minStructures());
         }
 
         // Wrap retained candidates into a single coarse cluster; generateClusters performs the
@@ -591,9 +596,13 @@ public final class SearchEngine {
 
         Set<BlockPoint> required = new TreeSet<>();
         ownedClusters.forEach(cluster -> required.addAll(cluster.structures()));
+        Set<BlockPoint> bflow = required;
+        if (opts.predictDepth() > 0 && opts.predictGate() > 0) {
+            bflow = predictFilter(generator, opts, bflow, progress);
+        }
         progress.setStage(ProgressRenderer.STAGE_B_FLOW);
-        Map<BlockPoint, List<BlockPos>> spawnersByChamber = generateAll(generator, opts, required, progress);
-        stats.chamberCount += required.size();
+        Map<BlockPoint, List<BlockPos>> spawnersByChamber = generateAll(generator, opts, bflow, progress);
+        stats.chamberCount += bflow.size();
         stats.spawnerCount += spawnersByChamber.values().stream().mapToInt(List::size).sum();
 
         progress.setStage(ProgressRenderer.STAGE_STAT);
@@ -681,8 +690,12 @@ public final class SearchEngine {
 
         progress.setStage(ProgressRenderer.STAGE_B_FLOW);
         Set<BlockPoint> required = new TreeSet<>(retained);
-        Map<BlockPoint, List<BlockPos>> spawnersByChamber = generateAll(generator, opts, required, progress);
-        stats.chamberCount += required.size();
+        Set<BlockPoint> bflow = required;
+        if (opts.predictDepth() > 0 && opts.predictGate() > 0) {
+            bflow = predictFilter(generator, opts, bflow, progress);
+        }
+        Map<BlockPoint, List<BlockPos>> spawnersByChamber = generateAll(generator, opts, bflow, progress);
+        stats.chamberCount += bflow.size();
         stats.spawnerCount += spawnersByChamber.values().stream().mapToInt(List::size).sum();
 
         progress.setStage(ProgressRenderer.STAGE_STAT);
@@ -1278,6 +1291,10 @@ public final class SearchEngine {
                 System.out.printf("[biome-check] %d -> %d candidates passed%n", before, required.size());
             }
         }
+        // Predict-and-verify prefilter before the full B-flow assembly.
+        if (opts.predictDepth() > 0 && opts.predictGate() > 0) {
+            required = predictFilter(generator, opts, required, progress);
+        }
         progress.setStage(ProgressRenderer.STAGE_B_FLOW);
         Map<BlockPoint, List<BlockPos>> spawnersByChamber = generateAll(generator, opts, required, progress);
 
@@ -1429,6 +1446,182 @@ public final class SearchEngine {
         return a.center().roundedZ() <= b.center().roundedZ() ? a : b;
     }
 
+    /** Scores every cluster against the generated spawners, returning qualifying results. */
+    private static List<SearchResult> scoreClusters(
+            List<CircleClusters.StructureCluster> clusters,
+            Map<BlockPoint, List<BlockPos>> spawnersByChamber,
+            Options opts, ProgressRenderer progress) {
+        progress.setStage(ProgressRenderer.STAGE_STAT);
+        List<SearchResult> results = new ArrayList<>();
+        for (CircleClusters.StructureCluster cluster : clusters) {
+            List<BlockPoint> structures = cluster.structures().stream()
+                    .filter(spawnersByChamber::containsKey)
+                    .sorted()
+                    .toList();
+            if (structures.size() < opts.minStructures()) {
+                continue;
+            }
+            Set<SpawnerPoint> clusterSpawners = new TreeSet<>();
+            structures.forEach(s -> {
+                for (BlockPos p : spawnersByChamber.get(s)) {
+                    clusterSpawners.add(new SpawnerPoint(p.getX(), p.getY(), p.getZ()));
+                }
+            });
+            try {
+                ExactCenterOptimizer.CenterScore score = ExactCenterOptimizer.find(
+                        AreaShape.CIRCLE, opts.clusterRadius(), structures, clusterSpawners);
+                if (score.spawners() >= opts.minSpawners()) {
+                    results.add(new SearchResult(score.x(), score.z(), structures.size(),
+                            score.spawners(), structures));
+                }
+            } catch (IllegalStateException ignored) {
+                // no integer centre covers all structures — skip (matches original behaviour)
+            }
+        }
+        progress.stageDone(results.size());
+        return results;
+    }
+
+    /**
+     * Cluster-level prune-and-verify prefilter (port of commit d6a3b11's bounded verification).
+     * Clusters are processed in batches in descending size order; for each batch every member
+     * chamber's spawner upper bound is predicted (full layout, no block scan — {@link
+     * SimChamberGenerator#predictSpawnerCount}). A cluster is dropped without full B-flow when its
+     * upper bound is below {@code minSpawners} (cannot qualify) or when
+     * {@link TrialResultAccumulator#canDiscardUpperBound} says it cannot make the top-100 output
+     * for any structure-count group it could produce. Surviving clusters' members are fully
+     * generated and scored, and the results accumulate so the cutoff tightens across batches.
+     */
+    private static List<SearchResult> clusterPruneAndGenerate(
+            SimChamberGenerator generator, Options opts, List<CircleClusters.StructureCluster> clusters,
+            ProgressRenderer progress, long started) throws IOException {
+        int threads = Math.max(1, opts.threads());
+        int gate = opts.predictGate();
+        TrialResultAccumulator accumulator = new TrialResultAccumulator();
+        java.util.concurrent.atomic.AtomicInteger prunedClusters = new java.util.concurrent.atomic.AtomicInteger();
+
+        // Sort clusters by SIZE descending first, then stream through batches. Within each batch we
+        // predict that batch's distinct members, prune with the current cutoff, generate survivors,
+        // and accumulate — so the top-100 cutoff tightens as we go and later batches prune more.
+        List<CircleClusters.StructureCluster> sorted = new ArrayList<>(clusters);
+        sorted.sort((a, b) -> Integer.compare(b.structures().size(), a.structures().size()));
+
+        // Fixed batch size: large enough that a few clusters per batch amortise the generateAll
+        // thread-pool and per-batch overhead, small enough that the top-100 cutoff still tightens
+        // as batches stream through. (Prior per-thread scaling produced 50+ tiny batches on small
+        // radii, each with its own B-flow generation of only a handful of chambers.)
+        int batchSize = 200;
+        long lastReportNanos = 0;
+        int batchIndex = 0;
+        int totalBatches = (int) Math.ceil(sorted.size() / (double) batchSize);
+        int clustersDone = 0;
+        int predictedMembers = 0;
+        // One overall progress bar for the whole B-flow (predict + prune + generate): stage B-Flow,
+        // driven by clusters processed out of total. This avoids a separate Density phase and per-batch
+        // bars — the user sees a single advancing bar for the entire prune-and-generate loop.
+        progress.setStage(ProgressRenderer.STAGE_B_FLOW);
+        java.util.concurrent.ConcurrentHashMap<BlockPoint, Integer> predictions =
+                new java.util.concurrent.ConcurrentHashMap<>();
+        // Reuse one thread pool across all batches (avoids per-batch ExecutorService startup, which
+        // dominates when a radius has few clusters split into many small batches).
+        try (ExecutorService executor = Executors.newFixedThreadPool(threads)) {
+            for (int start = 0; start < sorted.size(); start += batchSize) {
+                int end = Math.min(sorted.size(), start + batchSize);
+                List<CircleClusters.StructureCluster> batch = sorted.subList(start, end);
+
+                // 1. Predict this batch's distinct member chambers in parallel (cached across batches).
+                Set<BlockPoint> batchMembers = new TreeSet<>();
+                for (CircleClusters.StructureCluster cluster : batch) {
+                    for (BlockPoint member : cluster.structures()) {
+                        if (!predictions.containsKey(member)) {
+                            batchMembers.add(member);
+                        }
+                    }
+                }
+                if (!batchMembers.isEmpty()) {
+                    List<Future<?>> futures = new ArrayList<>();
+                    for (BlockPoint member : batchMembers) {
+                        futures.add(executor.submit(() -> {
+                            int chunkX = Math.floorDiv(member.x(), 16);
+                            int chunkZ = Math.floorDiv(member.z(), 16);
+                            predictions.put(member, generator.predictSpawnerCount(opts.seed(), chunkX, chunkZ));
+                        }));
+                    }
+                    for (Future<?> future : futures) {
+                        try {
+                            future.get();
+                        } catch (Exception e) {
+                            throw new RuntimeException("cluster predict failed", e);
+                        }
+                    }
+                    predictedMembers += batchMembers.size();
+                }
+
+            // 2. Keep clusters whose upper bound could make the output; drop the rest (lossless).
+            List<CircleClusters.StructureCluster> surviving = new ArrayList<>();
+            Set<BlockPoint> survivingMembers = new TreeSet<>();
+            for (CircleClusters.StructureCluster cluster : batch) {
+                long upperBound = clusterUpperBound(cluster, predictions);
+                if (upperBound < opts.minSpawners()) {
+                    prunedClusters.incrementAndGet();
+                    continue;
+                }
+                if (accumulator.canDiscardUpperBound(
+                        (int) Math.min(Integer.MAX_VALUE, upperBound),
+                        opts.minStructures(), cluster.structures().size())) {
+                    prunedClusters.incrementAndGet();
+                    continue;
+                }
+                surviving.add(cluster);
+                survivingMembers.addAll(cluster.structures());
+            }
+
+            // 3. Fully generate surviving members, score, and accumulate (updates the cutoff).
+            //    Use a silent renderer so each batch's per-chamber B-flow/Stat bars do not spam the
+            //    console — the overall batch progress is reported at the end of the loop instead.
+            if (!survivingMembers.isEmpty()) {
+                Map<BlockPoint, List<BlockPos>> spawnersByChamber =
+                        generateAll(generator, opts, survivingMembers, ProgressRenderer.disabled());
+                for (SearchResult result : scoreClusters(surviving, spawnersByChamber, opts, ProgressRenderer.disabled())) {
+                    accumulator.accept(result);
+                }
+            }
+
+            clustersDone += batch.size();
+            batchIndex++;
+            long now = System.nanoTime();
+            // One overall B-flow progress bar, advanced by clusters processed out of total.
+            if (!progress.isQuiet() && (batchIndex == totalBatches || now - lastReportNanos >= 1_000_000_000L)) {
+                double elapsed = Math.max(0.001, (now - started) / 1e9);
+                double rate = clustersDone / elapsed;
+                double remaining = (sorted.size() - clustersDone) / Math.max(0.001, rate);
+                progress.update(ProgressRenderer.STAGE_B_FLOW, clustersDone, sorted.size(), rate,
+                        ProgressRenderer.formatDurationNanos(Math.round(remaining * 1e9)));
+                lastReportNanos = now;
+            }
+        }
+        }
+        progress.setStage(ProgressRenderer.STAGE_B_FLOW);
+        progress.stageDone(sorted.size());
+        if (opts.debug() && prunedClusters.get() > 0) {
+            System.out.printf("[cluster-predict] %d clusters pruned by upper-bound prefilter "
+                    + "(gate=%d); %d kept%n",
+                    prunedClusters.get(), gate, accumulator.results().size());
+        }
+        return new ArrayList<>(accumulator.results());
+    }
+
+    /** Predicted spawner upper bound of a cluster = sum of its members' predicted counts. */
+    private static long clusterUpperBound(
+            CircleClusters.StructureCluster cluster,
+            java.util.concurrent.ConcurrentHashMap<BlockPoint, Integer> predictions) {
+        long upperBound = 0;
+        for (BlockPoint member : cluster.structures()) {
+            upperBound += predictions.getOrDefault(member, 0);
+        }
+        return upperBound;
+    }
+
     private static Map<BlockPoint, List<BlockPos>> generateAll(
             SimChamberGenerator generator, Options opts, Set<BlockPoint> candidates,
             ProgressRenderer progress) {
@@ -1465,7 +1658,70 @@ public final class SearchEngine {
                 Thread.currentThread().interrupt();
             }
         }
+        // Persist any chambers written during generation (single-file binary cache).
+        if (opts.cache() != null) {
+            opts.cache().flush();
+        }
         return spawners;
+    }
+
+    /**
+     * Predict-and-verify batch prefilter, run AFTER the A-flow density prefilter and BEFORE the
+     * B-flow full assembly. For every candidate it runs a cheap shallow checkpoint (depth
+     * {@code predictDepth}) in parallel; candidates whose shallow spawner count is below
+     * {@code predictGate} are dropped before the expensive full assembly. Kept candidates proceed
+     * to {@link #generateAll} unchanged. Returns the retained candidate set.
+     */
+    private static Set<BlockPoint> predictFilter(
+            SimChamberGenerator generator, Options opts, Set<BlockPoint> candidates,
+            ProgressRenderer progress) {
+        int threads = Math.max(1, opts.threads());
+        int depth = opts.predictDepth();
+        int gate = opts.predictGate();
+        if (depth <= 0 || gate <= 0 || candidates.isEmpty()) {
+            return candidates;
+        }
+        progress.setStage(ProgressRenderer.STAGE_DENSITY);
+        Set<BlockPoint> retained = java.util.concurrent.ConcurrentHashMap.newKeySet();
+        java.util.concurrent.atomic.AtomicInteger done = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.concurrent.atomic.AtomicInteger dropped = new java.util.concurrent.atomic.AtomicInteger();
+        int total = candidates.size();
+        long startNanos = System.nanoTime();
+        try (ExecutorService executor = Executors.newFixedThreadPool(threads)) {
+            List<java.util.concurrent.Future<?>> futures = new java.util.ArrayList<>();
+            for (BlockPoint candidate : candidates) {
+                futures.add(executor.submit(() -> {
+                    int chunkX = Math.floorDiv(candidate.x(), 16);
+                    int chunkZ = Math.floorDiv(candidate.z(), 16);
+                    int shallow = generator.shallowSpawnerCount(opts.seed(), chunkX, chunkZ, depth);
+                    if (shallow >= gate) {
+                        retained.add(candidate);
+                    } else {
+                        dropped.incrementAndGet();
+                    }
+                    reportGenerationProgress(progress, done.incrementAndGet(), total, startNanos);
+                }));
+            }
+            for (java.util.concurrent.Future<?> future : futures) {
+                try {
+                    future.get();
+                } catch (Exception e) {
+                    throw new RuntimeException("predict prefilter failed", e);
+                }
+            }
+            executor.shutdown();
+            try {
+                executor.awaitTermination(1, TimeUnit.HOURS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        if (opts.debug() && dropped.get() > 0) {
+            System.out.printf("[predict] %d chambers dropped by shallow prefilter (depth=%d, gate=%d); "
+                    + "%.1f%% kept%n",
+                    dropped.get(), depth, gate, retained.size() * 100.0 / total);
+        }
+        return retained;
     }
 
     /** Thread-safe, rate-limited progress report for parallel B-flow generation. */

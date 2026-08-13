@@ -40,6 +40,24 @@ public final class JigsawPlacement {
     }
 
     /**
+     * Checkpoint hook for the predict-and-verify prefilter. Called once, at the first piece of
+     * depth {@code checkpointDepth} (strict BFS order), after all pieces of depth
+     * {@code < checkpointDepth} have been placed. Because BFS order means the placed pieces are
+     * exactly the full-depth result's depth-{@code < D} prefix (identical RNG consumption), the
+     * caller may decide to stop (returning {@code false} — dropping the structure) or continue
+     * (returning {@code true} — resuming with the same RNG state as a full run, so the final
+     * pieces are identical to a complete assembly).
+     */
+    @FunctionalInterface
+    public interface Checkpoint {
+        boolean shouldContinue(List<PoolElementStructurePiece> placedPieces, int checkpointDepth);
+    }
+
+    /** Result of a checkpointed assembly: the pieces (when not stopped) and whether it stopped early. */
+    public record CheckpointedResult(Optional<JigsawResult> result, boolean stoppedEarly) {
+    }
+
+    /**
      * Runs the full jigsaw assembly and returns the placed pieces (start piece first).
      * Returns empty if the structure is rejected (e.g. too close to world height limits).
      */
@@ -112,6 +130,125 @@ public final class JigsawPlacement {
             addPieces(context, size, templateManager, pools, random, startPiece, pieces, free, poolAliasLookup, liquidSettings);
         }
         return Optional.of(new JigsawResult(pieces, startPiece.getBoundingBox()));
+    }
+
+    /**
+     * {@link #addPieces} with a checkpoint hook. When {@code checkpointDepth > 0}, assembly pauses
+     * at the first piece of that depth (strict BFS order) and asks {@code checkpoint}; if it returns
+     * {@code false}, assembly stops immediately (no further RNG is consumed) and
+     * {@link CheckpointedResult#stoppedEarly()} is {@code true}. Otherwise assembly continues and the
+     * result is identical to a full run. {@code checkpointDepth <= 0} (or {@code >= size}) behaves
+     * exactly like {@link #addPieces} (no checkpoint fires).
+     */
+    public static CheckpointedResult addPiecesWithCheckpoint(
+            GenerationContext context,
+            Holder<StructureTemplatePool> startPoolHolder,
+            int size,
+            BlockPos startPos,
+            MaxDistance maxDistance,
+            PoolAliasLookup poolAliasLookup,
+            DimensionPadding dimensionPadding,
+            LiquidSettings liquidSettings,
+            int checkpointDepth,
+            Checkpoint checkpoint) {
+
+        if (checkpointDepth <= 0 || checkpointDepth >= size || checkpoint == null) {
+            return new CheckpointedResult(addPieces(context, startPoolHolder, size, startPos,
+                    maxDistance, poolAliasLookup, dimensionPadding, liquidSettings), false);
+        }
+
+        StructureTemplateManager templateManager = context.templateManager();
+        PoolRegistry pools = context.pools();
+        RandomSource random = context.random();
+        GenerationContext.HeightAccessor heightAccessor = context.heightAccessor();
+
+        Rotation rotation = Rotation.getRandom(random);
+
+        ResourceKey<StructureTemplatePool> startKey = startPoolHolder.unwrapKey();
+        StructureTemplatePool startPool;
+        if (startKey != null) {
+            ResourceKey<StructureTemplatePool> resolved = poolAliasLookup.lookup(startKey);
+            startPool = pools.get(resolved).orElse(startPoolHolder.value());
+        } else {
+            startPool = startPoolHolder.value();
+        }
+        StructurePoolElement startElement = startPool.getRandomTemplate(random);
+        if (startElement == EmptyPoolElement.INSTANCE) {
+            return new CheckpointedResult(Optional.empty(), false);
+        }
+
+        Vec3i vec3i = startPos.subtract(startPos);
+        BlockPos blockPos3 = startPos.subtract(vec3i);
+
+        PoolElementStructurePiece startPiece = new PoolElementStructurePiece(
+                templateManager,
+                startElement,
+                blockPos3,
+                startElement.getGroundLevelDelta(),
+                rotation,
+                startElement.getBoundingBox(templateManager, blockPos3, rotation));
+        BoundingBox box = startPiece.getBoundingBox();
+        int centerX = (box.maxX() + box.minX()) / 2;
+        int centerZ = (box.maxZ() + box.minZ()) / 2;
+        int y = blockPos3.getY();
+        int m = box.minY() + startPiece.getGroundLevelDelta();
+
+        startPiece.move(0, y - m, 0);
+
+        if (isStartTooCloseToWorldHeightLimits(heightAccessor, dimensionPadding, startPiece.getBoundingBox())) {
+            return new CheckpointedResult(Optional.empty(), false);
+        }
+
+        int n = y + vec3i.getY();
+        List<PoolElementStructurePiece> pieces = new ArrayList<>();
+        pieces.add(startPiece);
+        if (size > 0) {
+            int regionMinY = Math.max(n - maxDistance.vertical(), heightAccessor.getMinY() + dimensionPadding.bottom());
+            int regionMaxY = Math.min(n + maxDistance.vertical(), heightAccessor.getMaxY() - dimensionPadding.top());
+            BoundingBox region = new BoundingBox(
+                    centerX - maxDistance.horizontal(), regionMinY, centerZ - maxDistance.horizontal(),
+                    centerX + maxDistance.horizontal(), regionMaxY, centerZ + maxDistance.horizontal());
+            VoxelShape free = VoxelShape.create(region);
+            free.subtract(startPiece.getBoundingBox());
+            boolean stoppedEarly = addPiecesWithCheckpoint(context, size, templateManager, pools, random,
+                    startPiece, pieces, free, poolAliasLookup, liquidSettings, checkpointDepth, checkpoint);
+            if (stoppedEarly) {
+                return new CheckpointedResult(Optional.empty(), true);
+            }
+        }
+        return new CheckpointedResult(
+                Optional.of(new JigsawResult(pieces, startPiece.getBoundingBox())), false);
+    }
+
+    /** Returns {@code true} when the assembly was stopped early at the checkpoint. */
+    private static boolean addPiecesWithCheckpoint(
+            GenerationContext context,
+            int size,
+            StructureTemplateManager templateManager,
+            PoolRegistry pools,
+            RandomSource random,
+            PoolElementStructurePiece startPiece,
+            List<PoolElementStructurePiece> pieces,
+            VoxelShape free,
+            PoolAliasLookup poolAliasLookup,
+            LiquidSettings liquidSettings,
+            int checkpointDepth,
+            Checkpoint checkpoint) {
+        Placer placer = new Placer(pools, size, templateManager, pieces, random);
+        placer.tryPlacingChildren(startPiece, free, 0, false, context.heightAccessor(), poolAliasLookup, liquidSettings);
+        boolean checkpointFired = false;
+        while (placer.placing.hasNext()) {
+            PieceState pieceState = placer.placing.next();
+            if (!checkpointFired && pieceState.depth() == checkpointDepth) {
+                checkpointFired = true;
+                if (!checkpoint.shouldContinue(pieces, checkpointDepth)) {
+                    return true; // stop: drop the structure
+                }
+            }
+            placer.tryPlacingChildren(pieceState.piece(), pieceState.free(), pieceState.depth(),
+                    false, context.heightAccessor(), poolAliasLookup, liquidSettings);
+        }
+        return false;
     }
 
     private static boolean isStartTooCloseToWorldHeightLimits(

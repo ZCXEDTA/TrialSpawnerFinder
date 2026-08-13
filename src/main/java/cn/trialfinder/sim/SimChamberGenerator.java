@@ -17,6 +17,7 @@ import cn.trialfinder.sim.structure.StructureTemplate;
 import cn.trialfinder.sim.structure.StructureTemplateManager;
 import cn.trialfinder.sim.structure.pools.DimensionPadding;
 import cn.trialfinder.sim.structure.pools.JigsawPlacement;
+import cn.trialfinder.sim.structure.pools.LightJigsawPlacement;
 import cn.trialfinder.sim.structure.pools.MaxDistance;
 import cn.trialfinder.sim.structure.pools.PoolElementStructurePiece;
 import cn.trialfinder.sim.structure.pools.PoolRegistry;
@@ -51,6 +52,8 @@ public final class SimChamberGenerator {
     private SpawnerCache cache;
     /** Jigsaw assembly max depth; {@code <= 0} uses the vanilla {@link TrialChambersData#SIZE}. */
     private int jigsawDepth;
+    /** Template id -> trial-spawner block count, for the checkpoint predictor (built at preload). */
+    private java.util.Map<cn.trialfinder.sim.resources.Identifier, Integer> spawnerCountByTemplate;
 
     /** Sets a shallow-jigsaw depth limit (a positive value truncates decorative recursion; spawner
      * counts may drop). {@code <= 0} restores the vanilla depth. */
@@ -108,22 +111,28 @@ public final class SimChamberGenerator {
      */
     private void preloadTemplates() {
         long t0 = System.nanoTime();
+        java.util.Map<cn.trialfinder.sim.resources.Identifier, Integer> counts = new java.util.HashMap<>();
         for (cn.trialfinder.sim.structure.pools.StructureTemplatePool pool
                 : this.pools.pools().values()) {
             for (cn.trialfinder.sim.util.Pair<StructurePoolElement, Integer> entry : pool.getTemplates()) {
-                entry.first().collectTemplateIds(this::preloadTemplate);
+                entry.first().collectTemplateIds(id -> counts.put(id, preloadTemplate(id)));
             }
         }
+        this.spawnerCountByTemplate = java.util.Map.copyOf(counts);
         System.out.printf("[timing] template preload (NBT)           %.1f ms%n",
                 (System.nanoTime() - t0) / 1e6);
     }
 
-    private void preloadTemplate(cn.trialfinder.sim.resources.Identifier id) {
+    private int preloadTemplate(cn.trialfinder.sim.resources.Identifier id) {
         // Load the NBT template into the manager cache (single-threaded I/O), but do NOT precompute
         // per-rotation jigsaw/bbox transforms here: pre-filling those caches empirically slowed
         // parallel B-flow (the cached lists get shallow-copied per call regardless, and the added
         // pre-fill allocation/garbage outweighed the computeIfAbsent-miss savings).
-        this.templateManager.get(id);
+        // Also record how many trial_spawner blocks the template has (used by the checkpoint
+        // predictor; most templates have none).
+        cn.trialfinder.sim.structure.StructureTemplate template =
+                this.templateManager.get(id).orElse(null);
+        return template != null ? template.countBlocks("minecraft:trial_spawner") : 0;
     }
 
     public StructureTemplateManager templateManager() {
@@ -211,6 +220,166 @@ public final class SimChamberGenerator {
         return doGenerate(worldSeed, chunkX, chunkZ);
     }
 
+    /**
+     * Counts the trial-spawner blocks across the placed pieces using the per-template map (no RNG
+     * consumption, no per-piece block scan). This is a lower bound on the full chamber's spawner
+     * count — the checkpoint predictor uses it to decide whether to keep or drop a candidate.
+     */
+    public int countSpawners(java.util.List<cn.trialfinder.sim.structure.pools.PoolElementStructurePiece> pieces) {
+        int count = 0;
+        for (cn.trialfinder.sim.structure.pools.PoolElementStructurePiece piece : pieces) {
+            cn.trialfinder.sim.structure.pools.StructurePoolElement element = piece.getElement();
+            if (element instanceof cn.trialfinder.sim.structure.pools.SinglePoolElement single) {
+                Integer perTemplate = this.spawnerCountByTemplate.get(single.getTemplateLocation());
+                if (perTemplate != null) {
+                    count += perTemplate;
+                }
+            }
+        }
+        return count;
+    }
+
+    /**
+     * Generates a chamber with an optional checkpoint prefilter. When {@code checkpointDepth > 0}
+     * and {@code verifyGate > 0}, assembly pauses at the first piece of {@code checkpointDepth}; if
+     * the placed pieces' spawner count is below {@code verifyGate}, the chamber is dropped
+     * ({@link java.util.Optional#empty()} — cheaper than a full assembly). Otherwise assembly
+     * resumes and the result is identical to {@link #generate}. {@code checkpointDepth <= 0} (or
+     * {@code >= maxDepth}) behaves exactly like {@link #generate}.
+     */
+    public java.util.Optional<ChamberResult> generateWithCheckpoint(
+            long worldSeed, int chunkX, int chunkZ, int checkpointDepth, int verifyGate) {
+        if (this.cache != null && this.cache.isEnabled()) {
+            synchronized (this.cache.lockFor(worldSeed, chunkX, chunkZ)) {
+                SpawnerCache.CachedChamber cached = this.cache.get(worldSeed, chunkX, chunkZ);
+                if (cached != null) {
+                    return java.util.Optional.of(ChamberResult.fromCached(cached.spawners(), cached.vaults()));
+                }
+                java.util.Optional<ChamberResult> result = doGenerateWithCheckpoint(
+                        worldSeed, chunkX, chunkZ, checkpointDepth, verifyGate);
+                // Only persist chambers that survived the checkpoint (dropped ones are cheap to re-predict).
+                result.ifPresent(r -> this.cache.put(worldSeed, chunkX, chunkZ,
+                        toCachedSpawners(r.spawnerInfos()), toCachedVaults(r.vaultInfos())));
+                return result;
+            }
+        }
+        return doGenerateWithCheckpoint(worldSeed, chunkX, chunkZ, checkpointDepth, verifyGate);
+    }
+
+    private java.util.Optional<ChamberResult> doGenerateWithCheckpoint(
+            long worldSeed, int chunkX, int chunkZ, int checkpointDepth, int verifyGate) {
+        WorldgenRandom random = new WorldgenRandom(new LegacyRandomSource(0L));
+        random.setLargeFeatureSeed(worldSeed, chunkX, chunkZ);
+
+        int startY = -40 + random.nextInt(TrialChambersData.START_HEIGHT_MAX - TrialChambersData.START_HEIGHT_MIN + 1);
+        BlockPos startPos = new BlockPos(chunkX * 16, startY, chunkZ * 16);
+
+        PoolAliasLookup aliasLookup = PoolAliasLookup.create(TrialChambersData.ALIAS_BINDINGS, startPos, worldSeed);
+
+        ResourceKey<StructureTemplatePool> startKey = ResourceKey.create(TrialChambersData.START_POOL);
+        GenerationContext context = new GenerationContext(
+                this.templateManager, this.pools, random, worldSeed, this.heightAccessor);
+
+        int maxDepth = this.jigsawDepth > 0 ? this.jigsawDepth : TrialChambersData.SIZE;
+        // At/above max depth the checkpoint would never fire before the tree ends; degenerate to full.
+        boolean checkpointActive = checkpointDepth > 0 && checkpointDepth < maxDepth && verifyGate > 0;
+        JigsawPlacement.CheckpointedResult cr = JigsawPlacement.addPiecesWithCheckpoint(
+                context,
+                Holder.reference(startKey),
+                maxDepth,
+                startPos,
+                new MaxDistance(TrialChambersData.MAX_DISTANCE_FROM_CENTER),
+                aliasLookup,
+                new DimensionPadding(TrialChambersData.DIMENSION_PADDING, TrialChambersData.DIMENSION_PADDING),
+                LiquidSettings.IGNORE_WATERLOGGING,
+                checkpointActive ? checkpointDepth : 0,
+                checkpointActive ? (placed, depth) -> countSpawners(placed) >= verifyGate : null);
+        if (cr.stoppedEarly()) {
+            return java.util.Optional.empty();
+        }
+        return cr.result().map(result -> {
+            List<SpawnerInfo> infos = collectSpawnerInfos(result);
+            List<BlockPos> positions = infos.stream().map(SpawnerInfo::pos).toList();
+            List<VaultInfo> vaults = collectVaultInfos(result);
+            return new ChamberResult(result, positions, resolveMobAliases(aliasLookup), infos, vaults);
+        });
+    }
+
+    /**
+     * Measures the shallow (depth &lt; {@code checkpointDepth}) spawner count without completing the
+     * assembly: runs the checkpoint with a recording callback that captures the spawner count of the
+     * placed pieces then stops. This is the predictor value used by the checkpoint gate.
+     */
+    public int shallowSpawnerCount(long worldSeed, int chunkX, int chunkZ, int checkpointDepth) {
+        WorldgenRandom random = new WorldgenRandom(new LegacyRandomSource(0L));
+        random.setLargeFeatureSeed(worldSeed, chunkX, chunkZ);
+
+        int startY = -40 + random.nextInt(TrialChambersData.START_HEIGHT_MAX - TrialChambersData.START_HEIGHT_MIN + 1);
+        BlockPos startPos = new BlockPos(chunkX * 16, startY, chunkZ * 16);
+
+        PoolAliasLookup aliasLookup = PoolAliasLookup.create(TrialChambersData.ALIAS_BINDINGS, startPos, worldSeed);
+        ResourceKey<StructureTemplatePool> startKey = ResourceKey.create(TrialChambersData.START_POOL);
+        GenerationContext context = new GenerationContext(
+                this.templateManager, this.pools, random, worldSeed, this.heightAccessor);
+        int maxDepth = this.jigsawDepth > 0 ? this.jigsawDepth : TrialChambersData.SIZE;
+        int[] recorded = {-1}; // sentinel: checkpoint never fired (tree ended shallower than depth)
+        JigsawPlacement.CheckpointedResult cr = JigsawPlacement.addPiecesWithCheckpoint(
+                context,
+                Holder.reference(startKey),
+                maxDepth,
+                startPos,
+                new MaxDistance(TrialChambersData.MAX_DISTANCE_FROM_CENTER),
+                aliasLookup,
+                new DimensionPadding(TrialChambersData.DIMENSION_PADDING, TrialChambersData.DIMENSION_PADDING),
+                LiquidSettings.IGNORE_WATERLOGGING,
+                checkpointDepth,
+                (placed, depth) -> {
+                    recorded[0] = countSpawners(placed);
+                    return false; // stop immediately after recording
+                });
+        if (recorded[0] < 0) {
+            // The tree never reached checkpointDepth: the shallow result IS the full result.
+            return cr.result()
+                    .map(r -> countSpawners(r.pieces()))
+                    .orElse(0);
+        }
+        return recorded[0];
+    }
+
+    /**
+     * Predicts the chamber's spawner count via a full assembly but WITHOUT the per-piece block scan
+     * ({@code collectSpawnerInfos}). Runs the same Jigsaw layout as {@link #doGenerate}, then sums
+     * the per-template spawner map ({@link #countSpawners}). This is an exact upper bound on the
+     * full chamber's spawner count and is significantly cheaper than full generation (no
+     * {@code filterBlocks} scan), making it suitable for cluster-level prefiltering.
+     */
+    public int predictSpawnerCount(long worldSeed, int chunkX, int chunkZ) {
+        WorldgenRandom random = new WorldgenRandom(new LegacyRandomSource(0L));
+        random.setLargeFeatureSeed(worldSeed, chunkX, chunkZ);
+
+        int startY = -40 + random.nextInt(TrialChambersData.START_HEIGHT_MAX - TrialChambersData.START_HEIGHT_MIN + 1);
+        BlockPos startPos = new BlockPos(chunkX * 16, startY, chunkZ * 16);
+
+        PoolAliasLookup aliasLookup = PoolAliasLookup.create(TrialChambersData.ALIAS_BINDINGS, startPos, worldSeed);
+        ResourceKey<StructureTemplatePool> startKey = ResourceKey.create(TrialChambersData.START_POOL);
+        GenerationContext context = new GenerationContext(
+                this.templateManager, this.pools, random, worldSeed, this.heightAccessor);
+        int maxDepth = this.jigsawDepth > 0 ? this.jigsawDepth : TrialChambersData.SIZE;
+        // Lightweight assembly: identical RNG consumption to JigsawPlacement.addPieces, but avoids
+        // the per-chamber object allocations (LightPiece + ConnectorBuffer + ElementMetadata cache).
+        return LightJigsawPlacement.predictSpawners(
+                context,
+                Holder.reference(startKey),
+                maxDepth,
+                startPos,
+                new MaxDistance(TrialChambersData.MAX_DISTANCE_FROM_CENTER),
+                aliasLookup,
+                new DimensionPadding(TrialChambersData.DIMENSION_PADDING, TrialChambersData.DIMENSION_PADDING),
+                LiquidSettings.IGNORE_WATERLOGGING)
+                .map(List::size)
+                .orElse(0);
+    }
+
     private java.util.Optional<ChamberResult> doGenerate(long worldSeed, int chunkX, int chunkZ) {
         WorldgenRandom random = new WorldgenRandom(new LegacyRandomSource(0L));
         random.setLargeFeatureSeed(worldSeed, chunkX, chunkZ);
@@ -255,13 +424,14 @@ public final class SimChamberGenerator {
             StructurePoolElement element = piece.getElement();
             if (element instanceof SinglePoolElement single) {
                 StructureTemplate template = single.getTemplate(this.templateManager);
-                List<StructureBlockInfo> infos = template.filterBlocks(
-                        piece.getPosition(),
-                        new StructurePlaceSettings().setRotation(piece.getRotation()),
-                        "minecraft:trial_spawner");
-                for (StructureBlockInfo info : infos) {
+                // Use the per-rotation spawner-block cache: avoids re-running the rotation/state
+                // transform for every assembled piece (templates rarely have spawners, so the
+                // cached list is 0-2 entries and the offset is a cheap per-entry BlockPos offset).
+                BlockPos piecePos = piece.getPosition();
+                for (StructureBlockInfo info : template.getSpawnerBlocks(piece.getRotation())) {
+                    BlockPos world = info.pos().offset(piecePos);
                     String config = extractConfig(info.nbt());
-                    spawners.add(new SpawnerInfo(info.pos(), extractMobFromConfig(config), config));
+                    spawners.add(new SpawnerInfo(world, extractMobFromConfig(config), config));
                 }
             }
         }

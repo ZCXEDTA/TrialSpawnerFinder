@@ -80,7 +80,7 @@ run-cli.bat --seed 188188 --full-world --tile-size 100000 --tile-overlap 1000 --
 run-cli.bat query --seed 188188 --coords 544,166 1000,-2000 --radius 1000
 ```
 
-> 不想手动调参？省略 `--cluster-radius/--grid-size/--top-k`，`--auto-tune`（默认开启）自动按半径计算；半径 >100,000 自动切 GPU 网格预筛。
+> 不想手动调参？省略 `--cluster-radius/--grid-size/--top-k`，`--auto-tune`（默认开启）自动按半径计算。默认始终使用 `cluster` 预筛；`--prefilter-mode grid` 需显式指定。
 
 ## 📦 安装
 

@@ -51,39 +51,64 @@ class SpawnerCacheTest {
     }
 
     @Test
+    void allChambersInOneSeedShareOneFile() throws Exception {
+        SpawnerCache cache = new SpawnerCache(tempDir, true, false);
+        int chunkA = 12, chunkB = 400;
+        assertEquals(cache.fileFor(188188L), cache.fileFor(188188L),
+                "both chunks must map to the same seed file");
+
+        cache.put(188188L, chunkA, chunkA, sampleSpawners(), sampleVaults());
+        cache.put(188188L, chunkB, chunkB, sampleSpawners(), sampleVaults());
+        cache.flush(188188L);
+
+        assertEquals(1, Files.list(tempDir).filter(p -> p.getFileName().toString().startsWith("spawners_")).count(),
+                "both chambers must live in one file");
+        Path file = cache.fileFor(188188L);
+        assertTrue(Files.isRegularFile(file), "file must exist after flush: " + file);
+    }
+
+    @Test
+    void flushThenReopenReadsPersistedChambers() throws Exception {
+        SpawnerCache cache = new SpawnerCache(tempDir, true, false);
+        cache.put(188188L, 12, 34, sampleSpawners(), sampleVaults());
+        cache.flush(188188L);
+
+        // A fresh instance (same dir) must read the persisted single file.
+        SpawnerCache reopened = new SpawnerCache(tempDir, true, false);
+        SpawnerCache.CachedChamber loaded = reopened.get(188188L, 12, 34);
+        assertNotNull(loaded, "persisted chamber must be readable after reopen");
+        assertEquals(sampleSpawners(), loaded.spawners());
+        assertEquals(sampleVaults(), loaded.vaults());
+    }
+
+    @Test
     void oldCacheFileWithoutVaultsReadsAsEmptyVaults() throws Exception {
         SpawnerCache cache = new SpawnerCache(tempDir, true, false);
-        // Simulate an older cache file that has spawners but no vaults field.
         cache.put(188188L, 12, 34, sampleSpawners(), null);
+        cache.flush(188188L);
         SpawnerCache.CachedChamber loaded = cache.get(188188L, 12, 34);
         assertNotNull(loaded);
         assertEquals(2, loaded.spawners().size());
-        assertTrue(loaded.vaults().isEmpty(), "vaults must be empty for old cache files");
+        assertTrue(loaded.vaults().isEmpty(), "vaults must be empty when none were written");
     }
 
     @Test
-    void disabledCacheNeverReadsOrWrites() {
+    void disabledCacheNeverReadsOrWrites() throws Exception {
         SpawnerCache cache = new SpawnerCache(tempDir, false, false);
         cache.put(1L, 1, 1, sampleSpawners(), sampleVaults());
         assertNull(cache.get(1L, 1, 1));
-        assertTrue(cache.isEnabled() == false);
-    }
-
-    @Test
-    void writesFileInExpectedLocation() throws Exception {
-        SpawnerCache cache = new SpawnerCache(tempDir, true, false);
-        cache.put(188188L, 12, 34, sampleSpawners(), sampleVaults());
-        Path file = cache.fileFor(188188L, 12, 34);
-        assertTrue(Files.isRegularFile(file), "cache file must exist: " + file);
-        assertTrue(Files.size(file) > 0);
+        cache.flush(1L);
+        assertFalse(cache.isEnabled());
+        assertFalse(Files.exists(tempDir.resolve("spawners_1.bin")),
+                "disabled cache must not write a file");
     }
 
     @Test
     void corruptFileMisses() throws Exception {
         SpawnerCache cache = new SpawnerCache(tempDir, true, false);
-        Path file = cache.fileFor(7L, 8, 9);
+        Path file = cache.fileFor(7L);
         Files.createDirectories(tempDir);
-        Files.writeString(file, "not json {");
+        Files.writeString(file, "not binary {");
         assertNull(cache.get(7L, 8, 9), "corrupt cache file must be treated as a miss");
     }
 
@@ -91,8 +116,10 @@ class SpawnerCacheTest {
     void mismatchedKeyInFileMisses() throws Exception {
         SpawnerCache cache = new SpawnerCache(tempDir, true, false);
         cache.put(1L, 2, 3, sampleSpawners(), sampleVaults());
-        // Reading under a different key must not return data cached under another key.
+        cache.flush(1L);
+        // Different seed reads its own (absent) file.
         assertNull(cache.get(2L, 2, 3));
+        // Same seed, different chunk is absent.
         assertNull(cache.get(1L, 99, 3));
     }
 

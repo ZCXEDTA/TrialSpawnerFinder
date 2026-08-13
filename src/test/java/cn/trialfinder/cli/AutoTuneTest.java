@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <pre>
  *   cluster-radius = max(64, min(256, searchRadius / 200))
  *   grid-size      = 2 * cluster-radius
- *   top-k          = max(50, min(5000, searchRadius / 100))
+ *   top-k          = stays 0 (disabled) for maximum precision — never auto-tuned
  * </pre>
  * Explicit CLI values, {@code --no-auto-tune} and {@code --full-world} must be respected.
  */
@@ -30,11 +30,11 @@ class AutoTuneTest {
     }
 
     @Test
-    void tunesClusterRadiusGridAndTopKFromRadius() throws Exception {
+    void tunesClusterRadiusGridFromRadius() throws Exception {
         TrialFinderCLI cli = parseAndTune("--seed", "188188", "--search-radius", "100000");
         assertEquals(256, cli.clusterRadius, "100000/200 = 500 -> clamped to 256");
         assertEquals(512, cli.gridSize, "grid = 2 * cluster-radius");
-        assertEquals(1000, cli.topK, "100000/100 = 1000");
+        assertEquals(0, cli.topK, "top-k must stay disabled (no auto-tune)");
     }
 
     @Test
@@ -42,21 +42,38 @@ class AutoTuneTest {
         TrialFinderCLI cli = parseAndTune("--seed", "188188", "--search-radius", "10000");
         assertEquals(64, cli.clusterRadius, "10000/200 = 50 -> clamped to 64");
         assertEquals(128, cli.gridSize);
-        assertEquals(100, cli.topK, "10000/100 = 100");
+        assertEquals(0, cli.topK, "top-k must stay disabled");
     }
 
     @Test
-    void tunesTinyRadiusToMinimumTopK() throws Exception {
-        // 3000/100 = 30 -> clamped to the 50 floor.
+    void topKNeverAutoTuned() throws Exception {
+        // Even a tiny radius must not have top-k auto-tuned; it stays 0 (full precision).
         TrialFinderCLI cli = parseAndTune("--seed", "188188", "--search-radius", "3000");
-        assertEquals(50, cli.topK, "3000/100 = 30 -> clamped to 50");
+        assertEquals(0, cli.topK, "top-k must stay 0 (disabled) regardless of radius");
     }
 
     @Test
     void tunesLargeRadiusToMaximums() throws Exception {
         TrialFinderCLI cli = parseAndTune("--seed", "188188", "--search-radius", "1000000");
         assertEquals(256, cli.clusterRadius, "1e6/200 = 5000 -> clamped to 256");
-        assertEquals(5000, cli.topK, "1e6/100 = 10000 -> clamped to 5000");
+        assertEquals(0, cli.topK, "top-k must stay disabled for large radii too");
+    }
+
+    @Test
+    void largeRadiusKeepsClusterPrefilterByDefault() throws Exception {
+        // Grid prefilter must never be auto-selected: a large radius keeps the default cluster
+        // prefilter unless the user explicitly opts in via --prefilter-mode grid.
+        TrialFinderCLI cli = parseAndTune("--seed", "188188", "--search-radius", "1000000");
+        assertEquals("cluster", cli.prefilterMode,
+                "large radius must keep the default cluster prefilter");
+    }
+
+    @Test
+    void respectsExplicitPrefilterMode() throws Exception {
+        TrialFinderCLI cli = parseAndTune(
+                "--seed", "188188", "--search-radius", "1000000", "--prefilter-mode", "grid");
+        assertEquals("grid", cli.prefilterMode,
+                "explicit --prefilter-mode grid must be kept");
     }
 
     @Test
@@ -64,9 +81,9 @@ class AutoTuneTest {
         TrialFinderCLI cli = parseAndTune(
                 "--seed", "188188", "--search-radius", "100000", "--cluster-radius", "300");
         assertEquals(300, cli.clusterRadius, "explicit cluster-radius must not be overridden");
-        // grid/top-k still auto-tuned.
+        // grid still auto-tuned from the explicit cluster-radius; top-k stays disabled.
         assertEquals(600, cli.gridSize);
-        assertEquals(1000, cli.topK);
+        assertEquals(0, cli.topK);
     }
 
     @Test
