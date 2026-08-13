@@ -21,7 +21,12 @@ public final class TrialChamberCandidates {
                 config.searchMinZ(), config.searchMaxZ());
     }
 
-    static List<BlockPoint> enumerate(FinderConfig config, long minX, long maxX, long minZ, long maxZ) {
+    /**
+     * 在矩形范围 {@code [minX,maxX]×[minZ,maxZ]} 内枚举试炼密室候选（纯函数，不依赖配置）。
+     * 只做包围盒过滤，不做任何圆形/方形区域过滤——调用方按需自行过滤
+     * （如 {@code candidate.distanceSquared(queryPoint) <= radius²}）。供定点查询复用。
+     */
+    public static List<BlockPoint> enumerate(long seed, long minX, long maxX, long minZ, long maxZ) {
         int minChunkX = Math.floorDiv(clampToInt(minX), 16);
         int maxChunkX = Math.floorDiv(clampToInt(maxX), 16);
         int minChunkZ = Math.floorDiv(clampToInt(minZ), 16);
@@ -35,16 +40,21 @@ public final class TrialChamberCandidates {
         List<BlockPoint> result = new ArrayList<>();
         for (int regionX = minRegionX; regionX <= maxRegionX; regionX++) {
             for (int regionZ = minRegionZ; regionZ <= maxRegionZ; regionZ++) {
-                BlockPoint candidate = candidateInRegion(config.seed(), regionX, regionZ);
+                BlockPoint candidate = candidateInRegion(seed, regionX, regionZ);
                 if (candidate.x() >= minX && candidate.x() <= maxX
-                        && candidate.z() >= minZ && candidate.z() <= maxZ
-                        && config.containsSearchPoint(candidate.x(), candidate.z())) {
+                        && candidate.z() >= minZ && candidate.z() <= maxZ) {
                     result.add(candidate);
                 }
             }
         }
         result.sort(BlockPoint::compareTo);
         return result;
+    }
+
+    static List<BlockPoint> enumerate(FinderConfig config, long minX, long maxX, long minZ, long maxZ) {
+        return enumerate(config.seed(), minX, maxX, minZ, maxZ).stream()
+                .filter(point -> config.containsSearchPoint(point.x(), point.z()))
+                .toList();
     }
 
     static BlockPoint candidateInRegion(long seed, int regionX, int regionZ) {

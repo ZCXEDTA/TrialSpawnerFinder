@@ -32,7 +32,11 @@ class FinderSearchTest {
         FinderConfig config = new FinderConfig(
                 1, 0, 0, 10_000, false, AreaShape.CIRCLE,
                 128, AreaShape.CIRCLE, 2, 0, 4, 262_144, TrialSearchMode.AUTO);
-        FinderSearch search = new FinderSearch(config, Path.of("results.csv"), ProgressReporter.NONE);
+        FinderSearch search = new FinderSearch(
+                config, Path.of("results.csv"), ProgressReporter.NONE,
+                new cn.trialfinder.sim.pool.PoolRegistry(
+                        new cn.trialfinder.sim.template.StructureTemplateManager()),
+                new cn.trialfinder.sim.template.StructureTemplateManager());
         BlockPoint first = new BlockPoint(0, 0);
         BlockPoint absent = new BlockPoint(32, 0);
         BlockPoint second = new BlockPoint(64, 0);

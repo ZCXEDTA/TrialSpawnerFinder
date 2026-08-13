@@ -1,19 +1,9 @@
 plugins {
-    id 'net.fabricmc.fabric-loom' version '1.17.14'
-    id 'maven-publish'
+    id 'java'
 }
 
 base {
     archivesName = rootProject.archives_base_name
-}
-
-loom {
-    runs {
-        server {
-            runDir '../run'
-            vmArg '-Xmx4G'
-        }
-    }
 }
 
 repositories {
@@ -23,25 +13,145 @@ repositories {
 dependencies {
     implementation project(':finder-core')
     implementation project(':trial-spawner-finder')
-    include project(':finder-core')
-    include project(':trial-spawner-finder')
 
-    minecraft "com.mojang:minecraft:${rootProject.minecraft_version}"
-    implementation "net.fabricmc:fabric-loader:${rootProject.loader_version}"
-    implementation "net.fabricmc.fabric-api:fabric-api:${rootProject.fabric_version}"
-}
-
-processResources {
-    inputs.property 'version', project.version
-    filesMatching('fabric.mod.json') {
-        expand 'version': inputs.properties.version
-    }
+    // 运行时零第三方依赖：JSON 解析用 cn.trialfinder.sim.json.Json 自研解析器。
+    // 测试依赖 junit 由根 build.gradle 统一配置。
 }
 
 java {
     withSourcesJar()
 }
 
-test {
-    maxParallelForks = 1
+// 独立运行：从项目根目录读取 finder.properties，跑纯 Java 搜索。
+tasks.register('run', JavaExec) {
+    group = 'application'
+    description = '运行纯 Java 试炼刷怪笼搜索（无需 Minecraft 服务端）'
+    mainClass = 'cn.minecraftfinder.runtime.Main'
+    classpath = sourceSets.main.runtimeClasspath
+    workingDir = rootProject.projectDir
+}
+
+// 从 Minecraft 26.2 merged jar 提取 trial_chambers datapack 数据到 resources。
+// 定位 loom 缓存路径（默认 ~/.gradle/caches/fabric-loom/26.2/minecraft-merged.jar），
+// 可用 -PminecraftJar=<path> 覆盖。前置：一次联网构建拉取 26.2 jar。
+def trialChambersMinecraftJar = findProperty('minecraftJar')
+        ?: "${System.getProperty('user.home')}/.gradle/caches/fabric-loom/26.2/minecraft-merged.jar"
+
+tasks.register('extractTrialChambersData') {
+    group = 'build'
+    description = '从 Minecraft 26.2 merged jar 提取 trial_chambers datapack 数据到 resources'
+    doLast {
+        def jar = new File(trialChambersMinecraftJar)
+        if (!jar.exists()) {
+            throw new GradleException(
+                    "找不到 Minecraft 26.2 merged jar: ${jar}\n" +
+                            '请先运行一次联网构建拉取 26.2，或用 -PminecraftJar=<path> 指定 jar 路径。')
+        }
+        def destDir = file('src/main/resources')
+        new java.util.jar.JarFile(jar).withCloseable { jf ->
+            jf.entries().each { entry ->
+                if (entry.isDirectory()) return
+                def name = entry.name
+                boolean trialChambers = name.startsWith('data/minecraft/worldgen/')
+                        && name.contains('trial_chambers')
+                boolean structure = name.startsWith('data/minecraft/structure/trial_chambers/')
+                if (!trialChambers && !structure) return
+                def out = new File(destDir, name)
+                out.parentFile.mkdirs()
+                new FileOutputStream(out).withCloseable { fos ->
+                    jf.getInputStream(entry).withCloseable { ins -> ins.transferTo(fos) }
+                }
+            }
+        }
+        logger.lifecycle("已提取 trial_chambers datapack 数据到 ${destDir}/data/minecraft")
+    }
+}
+
+// 独立可运行 fat jar（覆盖默认 jar 任务，无需外部 shadow 插件）：
+// 本模块 class + finder-core + trial-spawner-finder，零第三方 class，可直接 java -jar 运行。
+jar {
+    dependsOn configurations.runtimeClasspath
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    exclude('META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', 'META-INF/MANIFEST.MF')
+    exclude('module-info.class')
+    manifest {
+        attributes 'Main-Class': 'cn.minecraftfinder.runtime.Main',
+                   'Implementation-Title': 'TrialSpawnerFinder',
+                   'Implementation-Version': rootProject.mod_version
+    }
+}
+
+// 生成资源索引 data/resources.list：列出全部 data/... 资源路径。
+// native-image 镜像内无法枚举 classpath 目录，运行时代码（ClasspathResourceLoader）优先读这个清单。
+tasks.register('generateResourceIndex') {
+    group = 'build'
+    description = '生成 data/resources.list 资源索引（native-image 打包需要）'
+    def dataDir = file('src/main/resources/data')
+    def indexFile = file('build/generated/resources/data/resources.list')
+    inputs.dir dataDir
+    outputs.file indexFile
+    doLast {
+        if (!dataDir.exists()) {
+            throw new GradleException("缺少 resources/data 目录: ${dataDir}")
+        }
+        def paths = []
+        dataDir.eachFileRecurse { f ->
+            if (f.isFile()) {
+                paths << ('data/' + dataDir.toPath().relativize(f.toPath()).toString().replace('\\', '/'))
+            }
+        }
+        paths.sort()
+        indexFile.parentFile.mkdirs()
+        indexFile.text = paths.join('\n') + '\n'
+        logger.lifecycle("资源索引: ${paths.size()} 个文件 -> ${indexFile}")
+    }
+}
+
+// 把生成的资源索引并入 jar / classes 输出，供 ClasspathResourceLoader 读取。
+sourceSets.main.output.dir(buildDir.toPath().resolve('generated/resources').toFile(),
+        builtBy: tasks.named('generateResourceIndex'))
+processResources.dependsOn tasks.named('generateResourceIndex')
+
+// native-image 编译：用 GraalVM native-image 把 fat jar 编译成原生可执行文件（.exe），免 JDK。
+// 前置：安装 GraalVM 25（JDK25），native-image 组件；Windows 需要 Visual Studio C++ 工具链。
+def nativeImageCmd = System.getenv('GRAALVM_HOME')
+        ? file("${System.getenv('GRAALVM_HOME')}/bin/native-image.cmd")
+        : file('C:/Program Files/Java/graalvm-25.1.3+9.1/bin/native-image.cmd')
+
+tasks.register('nativeImage') {
+    group = 'build'
+    description = '用 GraalVM native-image 把 fat jar 编译成 trial-spawner-finder.exe（免 JDK）'
+    dependsOn jar, generateResourceIndex
+    doLast {
+        if (!nativeImageCmd.exists()) {
+            throw new GradleException(
+                    "找不到 native-image: ${nativeImageCmd}\n" +
+                            '请安装 GraalVM 25 并设置 GRAALVM_HOME。Windows 还需 Visual Studio C++ 工具链。')
+        }
+        def fatJar = jar.archiveFile.get().asFile
+        def outExe = new File(buildDir, 'native/trial-spawner-finder.exe')
+        outExe.parentFile.mkdirs()
+        logger.lifecycle("native-image: ${fatJar} -> ${outExe}")
+        def cmd = [
+                nativeImageCmd.absolutePath,
+                '-jar', fatJar.absolutePath,
+                '--no-fallback',
+                '-H:IncludeResources=data/.*',
+                '-H:Name=trial-spawner-finder',
+                '-H:Path=' + outExe.parentFile.absolutePath
+        ]
+        def proc = new ProcessBuilder(cmd).redirectErrorStream(true).start()
+        proc.inputStream.eachLine { line -> logger.lifecycle(line) }
+        int exit = proc.waitFor()
+        if (exit != 0) {
+            throw new GradleException("native-image 编译失败，退出码 ${exit}")
+        }
+        if (!outExe.exists()) {
+            throw new GradleException("native-image 编译完成但未找到 exe: ${outExe}")
+        }
+        logger.lifecycle("原生可执行文件: ${outExe}")
+    }
 }

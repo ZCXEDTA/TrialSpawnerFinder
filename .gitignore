@@ -22,3 +22,8 @@ release/**/results.csv
 release/**/results-*.csv
 release/**/results-*.txt
 docs/
+# 发布产物（make-dist.bat 可重新生成）
+dist/
+dist.zip
+query-*.csv
+query-*.txt
