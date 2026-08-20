@@ -22,7 +22,7 @@
 
 ```
 dist\
-├── trial-spawner-finder-1.0.0.jar   # 主程序（零第三方依赖）
+├── trial-spawner-finder-1.5.0.jar   # 主程序（零第三方依赖）
 ├── trial.bat                        # 启动器（优先用捆绑 runtime）
 ├── finder.properties                # 配置
 ├── runtime\                         # jlink 精简 JRE（约 30 MB）
@@ -60,7 +60,7 @@ trial.bat query --coords 3145,7232 --radius 2000
 也可以绕过脚本直接用 `java -jar`（需已构建，JDK 25）：
 
 ```
-java -jar minecraft-26.2-runtime\build\libs\trial-spawner-finder-1.0.0.jar --seed 123
+java -jar minecraft-26.2-runtime\build\libs\trial-spawner-finder-1.5.0.jar --seed 123
 ```
 
 ## 命令行参数
@@ -104,7 +104,7 @@ trial.bat query --seed 0 --coords 3145,7232 --radius 2000
 - 运行时不需要 Minecraft 服务端或存档，直接复刻官方 Jigsaw 拼接生成试炼刷怪笼坐标。
 - 试炼密室 datapack 数据（结构 NBT、模板池 JSON、结构配置）已提取进 `minecraft-26.2-runtime\src\main\resources\data\minecraft` 并随 jar 打包。
 - 运行时零 `net/minecraft` 类、零第三方库，构建只需 JDK 25 + Gradle，无需联网拉取插件/依赖（JSON 解析用自研 `cn.trialfinder.sim.json.Json`）。
-- 产物是 `minecraft-26.2-runtime\build\libs\trial-spawner-finder-1.0.0.jar`，直接 `java -jar` 即可运行。
+- 产物是 `minecraft-26.2-runtime\build\libs\trial-spawner-finder-1.5.0.jar`，直接 `java -jar` 即可运行。
 
 `setup.ps1` 执行 `gradlew clean jar`（只编译主代码并打 fat jar，不跑测试），首次构建只下载一次 Gradle 发行版。如需重新提取 26.2 数据（例如升级版本），运行 `gradlew :minecraft-26.2-runtime:extractTrialChambersData`（需联网拉取 Minecraft 26.2 jar，或用 `-PminecraftJar=<jar路径>` 指定 jar）。
 

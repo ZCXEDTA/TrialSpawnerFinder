@@ -4,10 +4,10 @@ chcp 65001 >nul
 cd /d "%~dp0"
 
 rem ---- locate the fat jar: project build output, or next to this script (dist) ----
-set "JAR=%CD%\minecraft-26.2-runtime\build\libs\trial-spawner-finder-1.0.0.jar"
-if not exist "%JAR%" set "JAR=%~dp0trial-spawner-finder-1.0.0.jar"
+set "JAR=%CD%\minecraft-26.2-runtime\build\libs\trial-spawner-finder-1.5.0.jar"
+if not exist "%JAR%" set "JAR=%~dp0trial-spawner-finder-1.5.0.jar"
 if not exist "%JAR%" (
-    echo ERROR: trial-spawner-finder-1.0.0.jar not found. Build it or use a distribution.
+    echo ERROR: trial-spawner-finder-1.5.0.jar not found. Build it or use a distribution.
     exit /b 1
 )
 set "JAVA_EXE="

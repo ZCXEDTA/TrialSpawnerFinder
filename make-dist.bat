@@ -6,7 +6,7 @@ cd /d "%~dp0"
 rem ============================================================
 rem  Build a self-contained dist\ directory (no Java install needed):
 rem    dist\
-rem      trial-spawner-finder-1.0.0.jar   (fat jar, zero third-party deps)
+rem      trial-spawner-finder-1.5.0.jar   (fat jar, zero third-party deps)
 rem      trial.bat                        (launcher: bundled runtime first)
 rem      finder.properties                (config)
 rem      runtime\                         (jlink minimal JRE, ~30 MB)
@@ -25,7 +25,7 @@ if not defined JDK (
     exit /b 1
 )
 set "JAVA=%JDK%\bin\java.exe"
-set "JAR=minecraft-26.2-runtime\build\libs\trial-spawner-finder-1.0.0.jar"
+set "JAR=minecraft-26.2-runtime\build\libs\trial-spawner-finder-1.5.0.jar"
 
 rem ---- build the fat jar ----
 if not exist "%JAR%" (

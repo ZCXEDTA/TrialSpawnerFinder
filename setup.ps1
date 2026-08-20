@@ -30,7 +30,7 @@ Write-Host "Using JDK: $env:JAVA_HOME"
 Push-Location $project
 try {
     # clean jar: build the standalone fat jar only (no tests, avoids downloading JUnit).
-    # Output: minecraft-26.2-runtime\build\libs\trial-spawner-finder-1.0.0.jar
+    # Output: minecraft-26.2-runtime\build\libs\trial-spawner-finder-1.5.0.jar
     # Optional: run.bat auto-builds when the jar is missing, so this is not required.
     & .\gradlew.bat clean jar
     if ($LASTEXITCODE -ne 0) { throw "Gradle build failed with exit code $LASTEXITCODE" }
