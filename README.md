@@ -2,6 +2,8 @@
 
 用于在 Minecraft 26.2 世界种子中查找试炼密室密集区域，并统计指定范围内实际生成的试炼刷怪笼。
 
+当前版本：**v1.0.0**（对应 Minecraft 26.2）。可从 [Releases](https://github.com/ZCXEDTA/TrialSpawnerFinder/releases) 下载现成的 `dist.zip` 免安装包，或用 `make-dist.bat` 自行构建。
+
 ## 使用方法
 
 直接双击 `run.bat` 即可开始搜索（无需先跑 `setup.ps1`）：
@@ -119,3 +121,16 @@ Minecraft 26.2 开发构建需要 JDK 25。`setup.ps1` 会从项目内 `java`、
 - `finder-core`（`cn.minecraftfinder.core`）：公共核心——配置、搜索区域、进度、输出、模型，零 Minecraft 依赖。
 - `trial-spawner-finder`（`cn.trialfinder`）：搜索算法层——候选枚举、圆/方形聚类、精确中心优化、分片扫描、排名与输出，零 Minecraft 依赖。
 - `minecraft-26.2-runtime`（`cn.trialfinder.sim.*`）：**纯 Java 生成模拟层**——随机源（LCG/Xoroshiro/WorldgenRandom）、NBT/JSON 解析、结构模板、模板池、Jigsaw 拼接、试炼密室布局计算器（`TrialChamberPredictor`），由官方 `HandTrialChamberPredictor` 剥离改造而来，与官方 26.2 生成逻辑逐位一致（已用同一 seed/半径对照官方结果验证）。运行时零 Minecraft 依赖，独立 fat jar 可直接 `java -jar` 运行。
+
+## 版本记录
+
+### v1.0.0（2026-08-20 · Minecraft 26.2）
+
+首个正式版。
+
+- **纯 Java 复刻 26.2 官方生成逻辑**：LCG/Xoroshiro 随机源、气候/生物群系筛选、结构 NBT/模板池数据、Jigsaw 拼接，与官方逐位一致。
+- **免安装 Java 的发布包**：`dist.zip` 内含 jlink 精简 JRE（约 30 MB），解压即用。
+- **全量搜索**：分片流式扫描、按 CPU 自动并发、圆/方形聚类、精确中心优化、检查点断点续扫。
+- **定点查询**：单/批量坐标的刷怪笼明细与宝库列表（`query`）。
+- **输出**：CSV（UTF-8 BOM，Excel 直接打开）+ 对齐 TXT；`--check-top` 统计快/慢刷怪笼与宝库数。
+- 搜索仅保留单一精确预测模式（早期 AUTO/EXACT 双模式与搜索期自我比对复核已移除）。
