@@ -3,7 +3,6 @@ package cn.trialfinder.search;
 import cn.minecraftfinder.core.AreaShape;
 import cn.minecraftfinder.core.ProgressUpdate;
 import cn.trialfinder.config.FinderConfig;
-import cn.trialfinder.config.TrialSearchMode;
 import cn.minecraftfinder.core.BlockPoint;
 import org.junit.jupiter.api.Test;
 
@@ -20,7 +19,7 @@ class ShardedClusterScannerTest {
         List<ProgressUpdate> progress = new java.util.ArrayList<>();
         FinderConfig config = new FinderConfig(
                 0, 0, 0, 1_000, false, AreaShape.CIRCLE,
-                128, AreaShape.CIRCLE, 1, 0, 1, 2_000, TrialSearchMode.AUTO);
+                128, AreaShape.CIRCLE, 1, 0, 1, 2_000);
 
         ShardedClusterScanner.scan(config, progress::add);
 
@@ -33,10 +32,10 @@ class ShardedClusterScannerTest {
     void candidateEstimateUsesTrialChamberRegionDensity() {
         FinderConfig circle = new FinderConfig(
                 0, 0, 0, 1_000_000, false, AreaShape.CIRCLE,
-                128, AreaShape.CIRCLE, 3, 20, 8, 262_144, TrialSearchMode.AUTO);
+                128, AreaShape.CIRCLE, 3, 20, 8, 262_144);
         FinderConfig world = new FinderConfig(
                 0, 0, 0, 1, true, AreaShape.CIRCLE,
-                128, AreaShape.CIRCLE, 3, 20, 8, 262_144, TrialSearchMode.AUTO);
+                128, AreaShape.CIRCLE, 3, 20, 8, 262_144);
 
         assertEquals(10_615_784, ShardedClusterScanner.estimatedCandidateCount(circle));
         assertEquals(12_164_792_388L, ShardedClusterScanner.estimatedCandidateCount(world));
@@ -56,8 +55,8 @@ class ShardedClusterScannerTest {
     void batchApiMatchesCompatibilityResult() {
         FinderConfig config = new FinderConfig(
                 9_206_294_873_968_313_284L, 137, -219, 48_000,
-                false, AreaShape.CIRCLE, 256, AreaShape.CIRCLE, 2, 0, 3, 262_144,
-                TrialSearchMode.AUTO);
+                false, AreaShape.CIRCLE, 256, AreaShape.CIRCLE, 2, 0, 3, 262_144
+                );
         ShardedClusterScanner.ScanResult expected = ShardedClusterScanner.scan(config);
         List<CircleClusters.StructureCluster> streamed = new java.util.ArrayList<>();
         List<Integer> shardOrder = new java.util.ArrayList<>();
@@ -106,7 +105,7 @@ class ShardedClusterScannerTest {
     void scansTenMillionCandidatesWithoutAccumulatingAllBatches() {
         FinderConfig config = new FinderConfig(
                 0, 0, 0, 1_000_000, false, AreaShape.CIRCLE,
-                128, AreaShape.CIRCLE, 1, 0, 8, 262_144, TrialSearchMode.AUTO);
+                128, AreaShape.CIRCLE, 1, 0, 8, 262_144);
         AtomicInteger maximumBatchClusters = new AtomicInteger();
 
         ShardedClusterScanner.ScanSummary summary = ShardedClusterScanner.scanBatches(
@@ -123,14 +122,14 @@ class ShardedClusterScannerTest {
         return new FinderConfig(
                 9_206_294_873_968_313_284L, 0, 0, radius,
                 false, AreaShape.CIRCLE, 128, AreaShape.CIRCLE,
-                1, 0, threads, legacyShardSize, TrialSearchMode.AUTO);
+                1, 0, threads, legacyShardSize);
     }
 
     private static void assertMatchesWholeArea(AreaShape shape) {
         FinderConfig config = new FinderConfig(
                 9_206_294_873_968_313_284L, 137, -219, 12_000,
-                false, AreaShape.CIRCLE, 256, shape, 2, 0, 3, 2_000,
-                TrialSearchMode.AUTO);
+                false, AreaShape.CIRCLE, 256, shape, 2, 0, 3, 2_000
+                );
         List<BlockPoint> points = TrialChamberCandidates.enumerate(config);
         List<CircleClusters.StructureCluster> expected = switch (shape) {
             case CIRCLE -> CircleClusters.find(points, 256, 2);

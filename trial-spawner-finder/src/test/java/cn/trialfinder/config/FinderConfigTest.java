@@ -18,11 +18,11 @@ class FinderConfigTest {
     void optimizedPointContainmentMatchesSearchAreaAtBoundaries() {
         FinderConfig[] configs = {
                 new FinderConfig(0, -17, 23, 128, false, AreaShape.CIRCLE,
-                        128, AreaShape.CIRCLE, 2, 20, 2, 32_768, TrialSearchMode.AUTO),
+                        128, AreaShape.CIRCLE, 2, 20, 2, 32_768),
                 new FinderConfig(0, 30_000_000, -30_000_000, 1, false, AreaShape.SQUARE,
-                        128, AreaShape.CIRCLE, 2, 20, 2, 32_768, TrialSearchMode.AUTO),
+                        128, AreaShape.CIRCLE, 2, 20, 2, 32_768),
                 new FinderConfig(0, 0, 0, 1, true, AreaShape.CIRCLE,
-                        128, AreaShape.CIRCLE, 2, 20, 2, 32_768, TrialSearchMode.AUTO)
+                        128, AreaShape.CIRCLE, 2, 20, 2, 32_768)
         };
         Random random = new Random(0x51A7);
         for (FinderConfig config : configs) {
@@ -62,26 +62,6 @@ class FinderConfigTest {
         assertEquals(false, config.fullWorld());
         assertEquals(262_144, config.scanShardSizeBlocks());
         assertEquals(Math.min(8, Runtime.getRuntime().availableProcessors()), config.scanThreads());
-        assertEquals(TrialSearchMode.AUTO, config.searchMode());
-        assertEquals(512, config.predictionCalibrationStructures());
-    }
-
-    @Test
-    void loadsExactSearchMode() throws IOException {
-        Path file = directory.resolve("finder.properties");
-        Files.writeString(file, """
-                seed=1
-                search-center-x=0
-                search-center-z=0
-                search-radius-blocks=1000
-                trial-cluster-radius-blocks=128
-                trial-area-shape=circle
-                trial-min-structures=1
-                trial-min-spawners=20
-                trial-search-mode=exact
-                """);
-
-        assertEquals(TrialSearchMode.EXACT, FinderConfig.load(file).searchMode());
     }
 
     @Test

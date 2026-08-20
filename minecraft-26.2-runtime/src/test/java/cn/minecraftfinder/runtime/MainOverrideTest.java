@@ -2,7 +2,6 @@ package cn.minecraftfinder.runtime;
 
 import cn.minecraftfinder.core.AreaShape;
 import cn.trialfinder.config.FinderConfig;
-import cn.trialfinder.config.TrialSearchMode;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -15,7 +14,7 @@ class MainOverrideTest {
     private static FinderConfig base() {
         return new FinderConfig(
                 0, 0, 0, 300_000, false, AreaShape.CIRCLE,
-                128, AreaShape.CIRCLE, 2, 20, 8, 262_144, TrialSearchMode.AUTO, 512);
+                128, AreaShape.CIRCLE, 2, 20, 8, 262_144);
     }
 
     @Test
@@ -38,9 +37,7 @@ class MainOverrideTest {
                 "--trial-min-structures", "3",
                 "--trial-min-spawners", "30",
                 "--scan-threads", "4",
-                "--scan-shard-size-blocks", "131072",
-                "--trial-search-mode", "exact",
-                "--trial-prediction-calibration-structures", "0"
+                "--scan-shard-size-blocks", "131072"
         });
         assertEquals(123, overridden.seed());
         assertEquals(10, overridden.searchCenterX());
@@ -54,8 +51,6 @@ class MainOverrideTest {
         assertEquals(30, overridden.minSpawners());
         assertEquals(4, overridden.scanThreads());
         assertEquals(131072, overridden.scanShardSizeBlocks());
-        assertEquals(TrialSearchMode.EXACT, overridden.searchMode());
-        assertEquals(0, overridden.predictionCalibrationStructures());
     }
 
     @Test
@@ -66,7 +61,6 @@ class MainOverrideTest {
         assertEquals(10000, overridden.searchRadiusBlocks());
         assertEquals(0, overridden.searchCenterX());
         assertEquals(128, overridden.clusterRadiusBlocks());
-        assertEquals(TrialSearchMode.AUTO, overridden.searchMode());
     }
 
     @Test

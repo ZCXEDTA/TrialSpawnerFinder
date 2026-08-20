@@ -4,7 +4,6 @@ import cn.minecraftfinder.core.BlockPoint;
 import cn.minecraftfinder.core.ProgressReporter;
 import cn.minecraftfinder.core.ProgressUpdate;
 import cn.trialfinder.config.FinderConfig;
-import cn.trialfinder.config.TrialSearchMode;
 import cn.trialfinder.io.ResultWriter;
 import cn.trialfinder.model.SearchResult;
 import cn.trialfinder.model.SpawnerPoint;
@@ -28,7 +27,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Function;
-import java.util.function.IntConsumer;
 import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
@@ -37,7 +35,6 @@ import java.util.concurrent.Executors;
 public final class FinderSearch {
     private static final int IN_FLIGHT_TASKS_PER_THREAD = 4;
     private static final int STRUCTURE_TASK_BATCH_SIZE = 16;
-    private static final int PRUNED_AUDIT_INTERVAL = 10_000;
 
     private final FinderConfig config;
     private final PoolRegistry pools;
@@ -68,41 +65,30 @@ public final class FinderSearch {
 
     public void run() throws IOException {
         Instant started = Instant.now();
-        System.out.println("使用有界分片流水线扫描并验证试炼密室...");
+        System.out.println("使用有界分片流水线扫描并预测试炼密室...");
         System.out.println("JVM 可用逻辑处理器：%d；快速扫描线程：%d；精细生成线程：%d".formatted(
                 Runtime.getRuntime().availableProcessors(), config.scanThreads(),
                 fineThreadCount(Runtime.getRuntime().availableProcessors())));
         System.out.println("试炼密室自动分片：边长 %,d 方块；共 %,d 片。".formatted(
                 ShardedClusterScanner.processingShardSizeBlocks(config),
                 ShardedClusterScanner.processingShardCount(config)));
-        boolean usePrediction = config.searchMode() == TrialSearchMode.AUTO;
-        SearchStatistics statistics;
-        try {
-            statistics = execute(usePrediction);
-        } catch (PredictionMismatchException e) {
-            System.err.println("快速布局与原版不一致，自动切换到有界全量验证：" + e.getMessage());
-            checkpoint.delete();
-            accumulatedResults.clear();
-            resultSources.clear();
-            statistics = execute(false);
-        }
+        SearchStatistics statistics = execute();
 
         save();
         checkpoint.delete();
         System.out.println((
                 "搜索完成：%d 个达标结果；扫描候选 %,d；预测 %,d 座/%,d 组；"
-                        + "严格裁剪 %,d 组；原版生成 %,d 座；耗时 %s。")
+                        + "严格裁剪 %,d 组；耗时 %s。")
                 .formatted(accumulatedResults.results().size(), statistics.scannedCandidates(),
                         statistics.predictedStructures(), statistics.predictedClusters(),
-                        statistics.prunedClusters(), statistics.verifiedStructures(), elapsed(started)));
+                        statistics.prunedClusters(), elapsed(started)));
         System.out.println("结果文件：" + output.toAbsolutePath());
         System.out.println("对齐文本：" + ResultWriter.textPath(output).toAbsolutePath());
     }
 
-    private SearchStatistics execute(boolean usePrediction) throws IOException {
-        checkpoint = TrialSearchCheckpoint.open(config, output, usePrediction);
+    private SearchStatistics execute() throws IOException {
+        checkpoint = TrialSearchCheckpoint.open(config, output);
         output = checkpoint.output();
-        usePrediction = checkpoint.predictionEnabled();
         checkpoint.results().forEach(accumulatedResults::accept);
         resultSources.putAll(checkpoint.resultSources());
         TrialSearchCheckpoint.Statistics restoredStatistics = checkpoint.statistics();
@@ -110,18 +96,14 @@ public final class FinderSearch {
             System.out.println("已恢复检查点：完成 %,d 个分片；已有 %d 条保留结果。".formatted(
                     checkpoint.completedCount(), accumulatedResults.results().size()));
         }
-        System.out.println(usePrediction
-                ? "搜索模式：auto（精确预测排名 + 最终榜单复核）"
-                : "搜索模式：exact（有界全量验证）");
+        System.out.println("搜索模式：精确预测排名 + 剪枝");
 
         int threadCount = fineThreadCount(Runtime.getRuntime().availableProcessors());
         int maxInFlight = threadCount * IN_FLIGHT_TASKS_PER_THREAD;
         ThreadLocal<TrialChamberPredictor> predictors =
                 ThreadLocal.withInitial(() -> new TrialChamberPredictor(
                         config.seed(), SimStructureConfig.trialChambers(), pools, templates));
-        PredictionState predictionState = new PredictionState(
-                restoredStatistics, config.predictionCalibrationStructures());
-        long[] verifiedStructures = {restoredStatistics.verifiedStructures()};
+        PredictionState predictionState = new PredictionState(restoredStatistics);
         int shardCount = ShardedClusterScanner.processingShardCount(config);
         long estimatedCandidates = ShardedClusterScanner.estimatedCandidateCount(config);
 
@@ -132,7 +114,7 @@ public final class FinderSearch {
                                 "总进度", checkpoint.completedCount(),
                                 shardCount, "个", predictionState.scannedCandidates,
                                 estimatedCandidates),
-                        status(predictionState, verifiedStructures[0]));
+                        status(predictionState));
                 ShardedClusterScanner.scanBatches(
                         config,
                         progress,
@@ -142,13 +124,13 @@ public final class FinderSearch {
                             predictionState.predictedClusters += batch.clusters().size();
                             BatchResults batchResults = processBatch(
                                     batch, predictors, predictionState,
-                                    executor, maxInFlight, verifiedStructures);
+                                    executor, maxInFlight);
                             mergeBatchResults(batchResults);
                             try {
                                 checkpoint.commit(
                                         batch.shardIndex(), accumulatedResults.results(),
                                         resultSources,
-                                        statistics(predictionState, verifiedStructures[0]));
+                                        statistics(predictionState));
                             } catch (IOException e) {
                                 throw new UncheckedIOException(e);
                             }
@@ -158,12 +140,8 @@ public final class FinderSearch {
                                             batch.shardCount(), "个",
                                             predictionState.scannedCandidates,
                                             estimatedCandidates),
-                                    status(predictionState, verifiedStructures[0]));
+                                    status(predictionState));
                         });
-                if (usePrediction) {
-                    verifyFinalResults(
-                            predictors, executor, maxInFlight, verifiedStructures);
-                }
             } catch (UncheckedIOException e) {
                 throw e.getCause();
             }
@@ -172,21 +150,20 @@ public final class FinderSearch {
                 predictionState.scannedCandidates,
                 predictionState.predictedStructures,
                 predictionState.predictedClusters,
-                predictionState.prunedClusters,
-                verifiedStructures[0]);
+                predictionState.prunedClusters);
     }
 
-    private static String status(PredictionState state, long verifiedStructures) {
-        return "候选 %,d；聚类 %,d；裁剪 %,d；原版验证 %,d 座"
+    private static String status(PredictionState state) {
+        return "候选 %,d；聚类 %,d；裁剪 %,d"
                 .formatted(state.scannedCandidates, state.predictedClusters,
-                        state.prunedClusters, verifiedStructures);
+                        state.prunedClusters);
     }
 
     private static TrialSearchCheckpoint.Statistics statistics(
-            PredictionState state, long verifiedStructures) {
+            PredictionState state) {
         return new TrialSearchCheckpoint.Statistics(
                 state.scannedCandidates, state.predictedStructures,
-                state.predictedClusters, state.prunedClusters, verifiedStructures);
+                state.predictedClusters, state.prunedClusters);
     }
 
     private BatchResults processBatch(
@@ -194,8 +171,7 @@ public final class FinderSearch {
             ThreadLocal<TrialChamberPredictor> predictors,
             PredictionState predictionState,
             ExecutorService executor,
-            int maxInFlight,
-            long[] verifiedStructures) {
+            int maxInFlight) {
         Set<BlockPoint> requiredStructures = new TreeSet<>();
         batch.clusters().forEach(cluster -> requiredStructures.addAll(cluster.structures()));
 
@@ -204,23 +180,13 @@ public final class FinderSearch {
         predictionState.predictedStructures += predictions.size();
 
         List<CircleClusters.StructureCluster> clustersToRank = new ArrayList<>();
-        Set<BlockPoint> structuresToAudit = new TreeSet<>();
-        addCalibrationStructures(requiredStructures, structuresToAudit, predictionState);
         for (CircleClusters.StructureCluster cluster : batch.clusters()) {
             if (requiresRankingEvaluation(cluster, predictions)) {
                 clustersToRank.add(cluster);
             } else {
                 predictionState.prunedClusters++;
-                if (predictionState.prunedClusters % PRUNED_AUDIT_INTERVAL == 0) {
-                    structuresToAudit.addAll(cluster.structures());
-                }
             }
         }
-
-        Map<BlockPoint, TrialChamberPredictor.Prediction> audited = predictBounded(
-                structuresToAudit, predictors, executor, maxInFlight);
-        verifiedStructures[0] += structuresToAudit.size();
-        comparePredictions(predictions, audited, predictionState);
 
         TrialResultAccumulator batchResults = new TrialResultAccumulator();
         Map<SearchResult, List<BlockPoint>> sources = new HashMap<>();
@@ -345,95 +311,12 @@ public final class FinderSearch {
         resultSources.keySet().retainAll(retained);
     }
 
-    private void verifyFinalResults(
-            ThreadLocal<TrialChamberPredictor> predictors,
-            ExecutorService executor,
-            int maxInFlight,
-            long[] verifiedStructures) {
-        List<SearchResult> expected = accumulatedResults.results();
-        Set<BlockPoint> requiredStructures = new TreeSet<>();
-        for (SearchResult result : expected) {
-            List<BlockPoint> source = resultSources.get(result);
-            if (source == null) {
-                throw new PredictionMismatchException("临时榜单缺少完整候选结构列表");
-            }
-            requiredStructures.addAll(source);
-        }
-
-        System.out.println("正在复核最终榜单：%,d 条结果，%,d 座候选密室。".formatted(
-                expected.size(), requiredStructures.size()));
-        int totalWork = requiredStructures.size() + expected.size();
-        int[] generatedCount = {0};
-        int[] rankedCount = {0};
-        reportFinalVerificationProgress(
-                generatedCount[0], requiredStructures.size(),
-                rankedCount[0], expected.size(), totalWork);
-        Map<BlockPoint, TrialChamberPredictor.Prediction> generated = generateBounded(
-                requiredStructures, predictors, executor, maxInFlight, completed -> {
-                    generatedCount[0] += completed;
-                    reportFinalVerificationProgress(
-                            generatedCount[0], requiredStructures.size(),
-                            rankedCount[0], expected.size(), totalWork);
-                });
-        verifiedStructures[0] += requiredStructures.size();
-
-        TrialResultAccumulator verified = new TrialResultAccumulator();
-        for (SearchResult predicted : expected) {
-            SearchResult actual = evaluateCluster(
-                    resultSources.get(predicted), point -> generatedSpawners(generated, point));
-            if (!predicted.equals(actual)) {
-                throw new PredictionMismatchException(
-                        "最终榜单候选的复核结果与快速布局不一致: " + predicted.structures());
-            }
-            verified.accept(actual);
-            rankedCount[0]++;
-            reportFinalVerificationProgress(
-                    generatedCount[0], requiredStructures.size(),
-                    rankedCount[0], expected.size(), totalWork);
-        }
-        if (!expected.equals(verified.results())) {
-            throw new PredictionMismatchException("最终榜单的复核排名与快速排名不一致");
-        }
-        accumulatedResults.clear();
-        verified.results().forEach(accumulatedResults::accept);
-        resultSources.clear();
-    }
-
-    private void reportFinalVerificationProgress(
-            int generated, int structureTotal, int ranked, int resultTotal, int totalWork) {
-        progress.report(
-                ProgressUpdate.phase(
-                        "最终复核", generated + ranked, totalWork, "项"),
-                "复核生成 %,d/%,d；榜单验证 %,d/%,d"
-                        .formatted(generated, structureTotal, ranked, resultTotal));
-    }
-
-    private static void addCalibrationStructures(
-            Set<BlockPoint> requiredStructures,
-            Set<BlockPoint> structuresToAudit,
-            PredictionState state) {
-        long remaining = state.calibrationLimit - state.comparedStructures;
-        if (remaining <= 0) return;
-        for (BlockPoint point : requiredStructures) {
-            structuresToAudit.add(point);
-            if (--remaining == 0) return;
-        }
-    }
-
     private static List<SpawnerPoint> predictedSpawners(
             Map<BlockPoint, TrialChamberPredictor.Prediction> predictions,
             BlockPoint point) {
         TrialChamberPredictor.Prediction prediction = predictions.get(point);
-        if (prediction == null) throw new PredictionMismatchException(point);
-        return prediction.actualSpawners();
-    }
-
-    private static List<SpawnerPoint> generatedSpawners(
-            Map<BlockPoint, TrialChamberPredictor.Prediction> generated,
-            BlockPoint point) {
-        TrialChamberPredictor.Prediction prediction = generated.get(point);
         if (prediction == null) {
-            throw new IllegalStateException("缺少密室生成结果: " + point);
+            throw new IllegalStateException("缺少密室快速布局结果: " + point);
         }
         return prediction.actualSpawners();
     }
@@ -443,22 +326,6 @@ public final class FinderSearch {
         TreeSet<BlockPoint> merged = new TreeSet<>(first);
         merged.addAll(second);
         return List.copyOf(merged);
-    }
-
-    private static void comparePredictions(
-            Map<BlockPoint, TrialChamberPredictor.Prediction> predictions,
-            Map<BlockPoint, TrialChamberPredictor.Prediction> generated,
-            PredictionState state) {
-        for (Map.Entry<BlockPoint, TrialChamberPredictor.Prediction> entry : generated.entrySet()) {
-            TrialChamberPredictor.Prediction prediction = predictions.get(entry.getKey());
-            TrialChamberPredictor.Prediction actual = entry.getValue();
-            if (prediction == null
-                    || prediction.exists() != actual.exists()
-                    || !prediction.actualSpawners().equals(actual.actualSpawners())) {
-                throw new PredictionMismatchException(entry.getKey());
-            }
-            state.comparedStructures++;
-        }
     }
 
     private static Map<BlockPoint, TrialChamberPredictor.Prediction> predictBounded(
@@ -493,75 +360,8 @@ public final class FinderSearch {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("试炼密室快速布局被中断", e);
         } catch (java.util.concurrent.ExecutionException e) {
-            throw new PredictionMismatchException("试炼密室快速布局任务异常退出");
+            throw new IllegalStateException("试炼密室快速布局任务异常退出", e.getCause());
         }
-    }
-
-    private static Map<BlockPoint, TrialChamberPredictor.Prediction> generateBounded(
-            Set<BlockPoint> requiredStructures,
-            ThreadLocal<TrialChamberPredictor> predictors,
-            ExecutorService executor,
-            int maxInFlight) {
-        return generateBounded(
-                requiredStructures, predictors, executor, maxInFlight, ignored -> { });
-    }
-
-    private static Map<BlockPoint, TrialChamberPredictor.Prediction> generateBounded(
-            Set<BlockPoint> requiredStructures,
-            ThreadLocal<TrialChamberPredictor> predictors,
-            ExecutorService executor,
-            int maxInFlight,
-            IntConsumer completed) {
-        Map<BlockPoint, TrialChamberPredictor.Prediction> generated =
-                new HashMap<>(requiredStructures.size());
-        List<BlockPoint> failed = new ArrayList<>();
-        CompletionService<GenerationBatchOutcome> completion =
-                new ExecutorCompletionService<>(executor);
-        Iterator<BlockPoint> points = requiredStructures.iterator();
-        int running = 0;
-
-        try {
-            while (points.hasNext() || running > 0) {
-                while (points.hasNext() && running < maxInFlight) {
-                    List<BlockPoint> batch = nextBatch(points);
-                    completion.submit(() -> generateBatch(batch, predictors));
-                    running++;
-                }
-                GenerationBatchOutcome outcome = completion.take().get();
-                running--;
-                int successful = 0;
-                for (GenerationOutcome generation : outcome.generations()) {
-                    if (generation.failure() == null) {
-                        generated.put(generation.point(), generation.chamber());
-                        successful++;
-                    } else {
-                        failed.add(generation.point());
-                    }
-                }
-                if (successful > 0) completed.accept(successful);
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("试炼密室生成被中断", e);
-        } catch (java.util.concurrent.ExecutionException e) {
-            throw new IllegalStateException("试炼密室生成任务异常退出", e.getCause());
-        }
-
-        if (!failed.isEmpty()) {
-            System.out.println("检测到 %d 座密室发生并发生成异常，正在单线程重试...".formatted(
-                    failed.size()));
-            TrialChamberPredictor retryPredictor = predictors.get();
-            for (BlockPoint point : failed) {
-                try {
-                    generated.put(point, retryPredictor.predict(point));
-                    completed.accept(1);
-                } catch (RuntimeException e) {
-                    throw new IllegalStateException(
-                            "密室 %d,%d 串行重试仍然失败".formatted(point.x(), point.z()), e);
-                }
-            }
-        }
-        return generated;
     }
 
     private static List<BlockPoint> nextBatch(Iterator<BlockPoint> points) {
@@ -582,32 +382,12 @@ public final class FinderSearch {
                 predictions.add(new PredictionOutcome(point, predictor.predict(point)));
             } catch (RuntimeException e) {
                 return new PredictionBatchOutcome(
-                        List.of(), new PredictionMismatchException(
+                        List.of(), new IllegalStateException(
                                 "密室 %d,%d 快速布局失败: %s".formatted(
                                         point.x(), point.z(), e.getMessage())));
             }
         }
         return new PredictionBatchOutcome(List.copyOf(predictions), null);
-    }
-
-    private static GenerationBatchOutcome generateBatch(
-            List<BlockPoint> points,
-            ThreadLocal<TrialChamberPredictor> predictors) {
-        List<GenerationOutcome> generations = new ArrayList<>(points.size());
-        TrialChamberPredictor predictor = predictors.get();
-        for (BlockPoint point : points) {
-            generations.add(generate(predictor, point));
-        }
-        return new GenerationBatchOutcome(List.copyOf(generations));
-    }
-
-    private static GenerationOutcome generate(
-            TrialChamberPredictor predictor, BlockPoint point) {
-        try {
-            return new GenerationOutcome(point, predictor.predict(point), null);
-        } catch (RuntimeException e) {
-            return new GenerationOutcome(point, null, e);
-        }
     }
 
     public synchronized void save() throws IOException {
@@ -639,12 +419,6 @@ public final class FinderSearch {
             Map<SearchResult, List<BlockPoint>> sources) {
     }
 
-    private record GenerationOutcome(
-            BlockPoint point,
-            TrialChamberPredictor.Prediction chamber,
-            RuntimeException failure) {
-    }
-
     private record PredictionOutcome(
             BlockPoint point,
             TrialChamberPredictor.Prediction prediction) {
@@ -652,9 +426,6 @@ public final class FinderSearch {
 
     private record PredictionBatchOutcome(
             List<PredictionOutcome> predictions, RuntimeException failure) {
-    }
-
-    private record GenerationBatchOutcome(List<GenerationOutcome> generations) {
     }
 
     private record ClusterEvaluationOutcome(
@@ -669,33 +440,18 @@ public final class FinderSearch {
         private long scannedCandidates;
         private long predictedStructures;
         private long predictedClusters;
-        private long comparedStructures;
         private long prunedClusters;
-        private final long calibrationLimit;
 
-        private PredictionState(
-                TrialSearchCheckpoint.Statistics statistics, long calibrationLimit) {
+        private PredictionState(TrialSearchCheckpoint.Statistics statistics) {
             scannedCandidates = statistics.scannedCandidates();
             predictedStructures = statistics.predictedStructures();
             predictedClusters = statistics.predictedClusters();
             prunedClusters = statistics.prunedClusters();
-            this.calibrationLimit = calibrationLimit;
         }
     }
 
     private record SearchStatistics(
             long scannedCandidates, long predictedStructures, long predictedClusters,
-            long prunedClusters, long verifiedStructures) {
-    }
-
-    private static final class PredictionMismatchException extends RuntimeException {
-        private PredictionMismatchException(BlockPoint point) {
-            this("密室 %d,%d 的存在性或刷怪笼坐标不一致".formatted(
-                    point.x(), point.z()));
-        }
-
-        private PredictionMismatchException(String message) {
-            super(message);
-        }
+            long prunedClusters) {
     }
 }

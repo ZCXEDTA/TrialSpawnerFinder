@@ -4,7 +4,6 @@ import cn.minecraftfinder.core.AreaShape;
 import cn.minecraftfinder.core.BlockPoint;
 import cn.minecraftfinder.core.ProgressReporter;
 import cn.trialfinder.config.FinderConfig;
-import cn.trialfinder.config.TrialSearchMode;
 import cn.trialfinder.model.SearchResult;
 import cn.trialfinder.model.SpawnerPoint;
 import org.junit.jupiter.api.Test;
@@ -31,7 +30,7 @@ class FinderSearchTest {
     void predictedCoordinatesUseTheExactCenterRankingPath() {
         FinderConfig config = new FinderConfig(
                 1, 0, 0, 10_000, false, AreaShape.CIRCLE,
-                128, AreaShape.CIRCLE, 2, 0, 4, 262_144, TrialSearchMode.AUTO);
+                128, AreaShape.CIRCLE, 2, 0, 4, 262_144);
         FinderSearch search = new FinderSearch(
                 config, Path.of("results.csv"), ProgressReporter.NONE,
                 new cn.trialfinder.sim.pool.PoolRegistry(

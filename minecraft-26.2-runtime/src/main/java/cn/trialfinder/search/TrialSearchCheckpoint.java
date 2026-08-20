@@ -25,13 +25,12 @@ import java.util.Map;
 
 final class TrialSearchCheckpoint {
     private static final int MAGIC = 0x54534631;
-    private static final int FORMAT_VERSION = 5;
+    private static final int FORMAT_VERSION = 6;
     private static final String TEMPLATE_FINGERPRINT = "vanilla-trial-chambers-26.2";
 
     private final Path path;
     private final String fingerprint;
     private final Path output;
-    private final boolean predictionEnabled;
     private final BitSet completedShards;
     private List<SearchResult> results;
     private Map<SearchResult, List<BlockPoint>> resultSources;
@@ -39,14 +38,13 @@ final class TrialSearchCheckpoint {
 
     private TrialSearchCheckpoint(
             Path path, String fingerprint, Path output,
-            boolean predictionEnabled, BitSet completedShards,
+            BitSet completedShards,
             List<SearchResult> results,
             Map<SearchResult, List<BlockPoint>> resultSources,
             Statistics statistics) {
         this.path = path;
         this.fingerprint = fingerprint;
         this.output = output;
-        this.predictionEnabled = predictionEnabled;
         this.completedShards = completedShards;
         this.results = List.copyOf(results);
         this.resultSources = immutableSources(resultSources);
@@ -54,19 +52,19 @@ final class TrialSearchCheckpoint {
     }
 
     static TrialSearchCheckpoint open(
-            FinderConfig config, Path requestedOutput, boolean requestedPrediction) throws IOException {
-        return open(config, requestedOutput, requestedPrediction,
+            FinderConfig config, Path requestedOutput) throws IOException {
+        return open(config, requestedOutput,
                 Path.of("checkpoints", "trial-spawner"));
     }
 
     static TrialSearchCheckpoint open(
-            FinderConfig config, Path requestedOutput, boolean requestedPrediction,
+            FinderConfig config, Path requestedOutput,
             Path checkpointDirectory) throws IOException {
         String fingerprint = fingerprint(config);
         Path path = checkpointDirectory.resolve(fingerprint + ".bin");
         if (!Files.exists(path)) {
             return new TrialSearchCheckpoint(
-                    path, fingerprint, requestedOutput, requestedPrediction,
+                    path, fingerprint, requestedOutput,
                     new BitSet(), List.of(), Map.of(), Statistics.EMPTY);
         }
         return read(path, fingerprint);
@@ -82,10 +80,6 @@ final class TrialSearchCheckpoint {
 
     Map<SearchResult, List<BlockPoint>> resultSources() {
         return resultSources;
-    }
-
-    boolean predictionEnabled() {
-        return predictionEnabled;
     }
 
     Statistics statistics() {
@@ -124,7 +118,6 @@ final class TrialSearchCheckpoint {
             outputStream.writeInt(FORMAT_VERSION);
             outputStream.writeUTF(fingerprint);
             outputStream.writeUTF(output.toString());
-            outputStream.writeBoolean(predictionEnabled);
             long[] completed = completedShards.toLongArray();
             outputStream.writeInt(completed.length);
             for (long value : completed) outputStream.writeLong(value);
@@ -137,7 +130,6 @@ final class TrialSearchCheckpoint {
             outputStream.writeLong(statistics.predictedStructures());
             outputStream.writeLong(statistics.predictedClusters());
             outputStream.writeLong(statistics.prunedClusters());
-            outputStream.writeLong(statistics.verifiedStructures());
         }
         try {
             Files.move(temporary, path,
@@ -158,7 +150,6 @@ final class TrialSearchCheckpoint {
                 throw new IOException("试炼刷怪笼检查点配置指纹不匹配: " + path);
             }
             Path output = Path.of(input.readUTF());
-            boolean predictionEnabled = input.readBoolean();
             int wordCount = input.readInt();
             if (wordCount < 0 || wordCount > 1_000_000) {
                 throw new IOException("试炼刷怪笼检查点分片数据损坏: " + path);
@@ -179,9 +170,9 @@ final class TrialSearchCheckpoint {
             }
             Statistics statistics = new Statistics(
                     input.readLong(), input.readLong(), input.readLong(),
-                    input.readLong(), input.readLong());
+                    input.readLong());
             return new TrialSearchCheckpoint(
-                    path, fingerprint, output, predictionEnabled,
+                    path, fingerprint, output,
                     BitSet.valueOf(completed), results, resultSources, statistics);
         }
     }
@@ -257,13 +248,12 @@ final class TrialSearchCheckpoint {
             long scannedCandidates,
             long predictedStructures,
             long predictedClusters,
-            long prunedClusters,
-            long verifiedStructures) {
-        private static final Statistics EMPTY = new Statistics(0, 0, 0, 0, 0);
+            long prunedClusters) {
+        private static final Statistics EMPTY = new Statistics(0, 0, 0, 0);
 
         Statistics {
             if (scannedCandidates < 0 || predictedStructures < 0 || predictedClusters < 0
-                    || prunedClusters < 0 || verifiedStructures < 0) {
+                    || prunedClusters < 0) {
                 throw new IllegalArgumentException("检查点统计不能为负数");
             }
         }

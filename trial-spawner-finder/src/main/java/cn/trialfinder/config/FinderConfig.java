@@ -22,19 +22,7 @@ public record FinderConfig(
         int minStructures,
         int minSpawners,
         int scanThreads,
-        int scanShardSizeBlocks,
-        TrialSearchMode searchMode,
-        int predictionCalibrationStructures) {
-
-    public FinderConfig(
-            long seed, int searchCenterX, int searchCenterZ, int searchRadiusBlocks,
-            boolean fullWorld, AreaShape searchAreaShape, int clusterRadiusBlocks,
-            AreaShape areaShape, int minStructures, int minSpawners, int scanThreads,
-            int scanShardSizeBlocks, TrialSearchMode searchMode) {
-        this(seed, searchCenterX, searchCenterZ, searchRadiusBlocks, fullWorld,
-                searchAreaShape, clusterRadiusBlocks, areaShape, minStructures, minSpawners,
-                scanThreads, scanShardSizeBlocks, searchMode, 512);
-    }
+        int scanShardSizeBlocks) {
 
     public static FinderConfig load(Path path) throws IOException {
         FinderProperties properties = FinderProperties.load(path);
@@ -53,9 +41,7 @@ public record FinderConfig(
                 requiredInt(properties, "trial-min-structures", "min-structures"),
                 requiredInt(properties, "trial-min-spawners", "min-spawners"),
                 scan.threads(),
-                scan.shardSizeBlocks(),
-                TrialSearchMode.parse(properties.optional("trial-search-mode", "auto")),
-                properties.optionalInt("trial-prediction-calibration-structures", 512));
+                scan.shardSizeBlocks());
         config.validate();
         return config;
     }
@@ -66,9 +52,6 @@ public record FinderConfig(
         }
         if (minStructures <= 0 || minSpawners < 0) {
             throw new IllegalArgumentException("min-structures 必须大于 0，min-spawners 不能小于 0");
-        }
-        if (predictionCalibrationStructures < 0) {
-            throw new IllegalArgumentException("预测校准座数不能小于 0");
         }
     }
 

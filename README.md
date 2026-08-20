@@ -30,8 +30,8 @@ dist\
 解压后在 `dist` 目录运行：
 
 ```
-trial.bat --seed 123 --search-radius-blocks 5000
-trial.bat query --coords 0,0 --radius 1000
+trial.bat --seed 123 --search-radius-blocks 50000
+trial.bat query --seed 0 --coords 0,0 --radius 1028
 ```
 
 `trial.bat` 的 Java 查找顺序：**捆绑的 `runtime\`** → `JDK25_HOME`/`JAVA_HOME` → 系统 JDK 25 → PATH。装了 JDK 会优先用捆绑的（保证版本一致），没有就用捆绑的。
@@ -48,7 +48,7 @@ make-dist.bat
 
 ## 从命令行运行
 
-唯一的启动器是 `trial.bat`（`run.bat` 只是它的转发，兼容旧习惯）。它自动定位捆绑 runtime / JDK 25、jar 缺失时自动构建，并用**纯 Java 的 `\r` 进度条**渲染进度（不依赖 PowerShell，cmd / PowerShell / Git Bash 下都能显示）：
+唯一的启动器是 `trial.bat`。自动定位 runtime / JDK 25、jar 缺失时自动构建，并用**纯 Java 的 `\r` 进度条**渲染进度：
 
 ```
 trial.bat --seed 123 --search-radius-blocks 5000 --scan-threads 8
@@ -69,21 +69,21 @@ java -jar minecraft-26.2-runtime\build\libs\trial-spawner-finder-1.0.0.jar --see
 trial.bat --seed 123 --search-radius-blocks 5000 --scan-threads 8 --trial-min-spawners 20
 ```
 
-支持的键：`--seed`、`--search-center-x`、`--search-center-z`、`--search-radius-blocks`、`--full-world`(true/false)、`--search-area-shape`(circle/square)、`--trial-cluster-radius-blocks`、`--trial-area-shape`(circle/square)、`--trial-min-structures`、`--trial-min-spawners`、`--scan-threads`、`--scan-shard-size-blocks`、`--trial-search-mode`(auto/exact)、`--trial-prediction-calibration-structures`。
+支持的键：`--seed`、`--search-center-x`、`--search-center-z`、`--search-radius-blocks`、`--full-world`(true/false)、`--search-area-shape`(circle/square)、`--trial-cluster-radius-blocks`、`--trial-area-shape`(circle/square)、`--trial-min-structures`、`--trial-min-spawners`、`--scan-threads`、`--scan-shard-size-blocks`。
 
 另有三个独立开关：
 - `--check-top N`：统计前 N 个结果的快/慢刷怪笼与宝库数，追加到 CSV/TXT 末尾三列（快速刷怪笼、慢速刷怪笼、宝库数量）。
-- `--no-progress`：完全关闭进度条（用于脚本/CI 输出）。
+- `--no-progress`：完全关闭进度条。
 - `--help` / `-h` / `help`：显示完整参数说明。
 
 不带参数时仍从 `finder.properties` 读取全部配置。用 `trial.bat --help`（或 `-h`、`help`）显示完整参数说明。
 
 ## 定点查询
 
-不做全量搜索，直接查询某个坐标点附近的试炼密室详情（不需要 `finder.properties` 里的搜索范围，只需 `seed`）：
+不做全量搜索，直接查询某个坐标点附近的试炼密室详情：
 
 ```
-trial.bat query --coords 3145,7232 --radius 2000
+trial.bat query --seed 0 --coords 3145,7232 --radius 2000
 ```
 
 - `--coords x,z x,z ...`：一个或多个查询点（逗号分隔），可重复。

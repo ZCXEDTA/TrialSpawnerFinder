@@ -4,7 +4,6 @@ import cn.minecraftfinder.core.AreaShape;
 import cn.minecraftfinder.core.ProgressReporter;
 import cn.minecraftfinder.core.ResultFiles;
 import cn.trialfinder.config.FinderConfig;
-import cn.trialfinder.config.TrialSearchMode;
 import cn.trialfinder.query.CheckTopChecker;
 import cn.trialfinder.query.PointQuery;
 import cn.trialfinder.query.QueryRenderer;
@@ -107,9 +106,6 @@ public final class Main {
                   --trial-min-spawners <int>              最低刷怪笼数量
                   --scan-threads <int>                    并行扫描线程数
                   --scan-shard-size-blocks <int>          扫描分片边长（方块）
-                  --trial-search-mode <auto|exact>        搜索模式
-                  --trial-prediction-calibration-structures <int>
-                                                          启动校准密室数量
                   --check-top <int>                       统计前 N 个结果的快/慢刷怪笼与宝库
                   --no-progress                           完全关闭进度条（脚本/CI 用）
 
@@ -255,8 +251,6 @@ public final class Main {
         int minSpawners = base.minSpawners();
         int scanThreads = base.scanThreads();
         int scanShardSizeBlocks = base.scanShardSizeBlocks();
-        TrialSearchMode searchMode = base.searchMode();
-        int predictionCalibrationStructures = base.predictionCalibrationStructures();
 
         for (int i = 0; i < args.length; i++) {
             String key = args[i];
@@ -287,16 +281,13 @@ public final class Main {
                 case "--trial-min-spawners" -> minSpawners = Integer.parseInt(value);
                 case "--scan-threads" -> scanThreads = Integer.parseInt(value);
                 case "--scan-shard-size-blocks" -> scanShardSizeBlocks = Integer.parseInt(value);
-                case "--trial-search-mode" -> searchMode = TrialSearchMode.parse(value);
-                case "--trial-prediction-calibration-structures" ->
-                        predictionCalibrationStructures = Integer.parseInt(value);
                 default -> throw new IllegalArgumentException("未知配置项: " + key);
             }
         }
         return new FinderConfig(
                 seed, searchCenterX, searchCenterZ, searchRadiusBlocks, fullWorld,
                 searchAreaShape, clusterRadiusBlocks, areaShape, minStructures, minSpawners,
-                scanThreads, scanShardSizeBlocks, searchMode, predictionCalibrationStructures);
+                scanThreads, scanShardSizeBlocks);
     }
 
     // ---------------------------------------------------------------- 定点查询
