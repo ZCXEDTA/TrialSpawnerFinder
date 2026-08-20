@@ -2,7 +2,7 @@
 
 用于在 Minecraft 26.2 世界种子中查找试炼密室密集区域，并统计指定范围内实际生成的试炼刷怪笼。
 
-当前版本：**v1.0.0**（对应 Minecraft 26.2）。可从 [Releases](https://github.com/ZCXEDTA/TrialSpawnerFinder/releases) 下载现成的 `dist.zip` 免安装包，或用 `make-dist.bat` 自行构建。
+当前版本：**v1.5.0**（对应 Minecraft 26.2）。可从 [Releases](https://github.com/ZCXEDTA/TrialSpawnerFinder/releases) 下载现成的 `dist.zip` 免安装包，或用 `make-dist.bat` 自行构建。
 
 ## 使用方法
 
@@ -124,9 +124,9 @@ Minecraft 26.2 开发构建需要 JDK 25。`setup.ps1` 会从项目内 `java`、
 
 ## 版本记录
 
-### v1.0.0（2026-08-20 · Minecraft 26.2）
+### v1.5.0（2026-08-20 · Minecraft 26.2）
 
-首个正式版。
+26.2 纯 Java 重构线首发（旧 Fabric/CUDA 线归档于 v1.4.0）。
 
 - **纯 Java 复刻 26.2 官方生成逻辑**：LCG/Xoroshiro 随机源、气候/生物群系筛选、结构 NBT/模板池数据、Jigsaw 拼接，与官方逐位一致。
 - **免安装 Java 的发布包**：`dist.zip` 内含 jlink 精简 JRE（约 30 MB），解压即用。
