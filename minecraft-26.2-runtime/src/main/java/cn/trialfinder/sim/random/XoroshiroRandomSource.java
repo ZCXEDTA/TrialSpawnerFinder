@@ -122,9 +122,9 @@ public class XoroshiroRandomSource implements RandomSource {
             long l = this.seedLo;
             long m = this.seedHi;
             long n = Long.rotateLeft(l + m, 17) + l;
-            long o = m;
-            this.seedLo = Long.rotateLeft(l, 49) ^ o ^ (o << 21);
-            this.seedHi = Long.rotateLeft(o, 28);
+            m ^= l;
+            this.seedLo = Long.rotateLeft(l, 49) ^ m ^ (m << 21);
+            this.seedHi = Long.rotateLeft(m, 28);
             return n;
         }
     }

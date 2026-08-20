@@ -1,6 +1,7 @@
 package cn.trialfinder.sim.world;
 
 import cn.minecraftfinder.core.BlockPoint;
+import cn.trialfinder.sim.climate.OverworldSampler;
 import cn.trialfinder.model.SpawnerPoint;
 import cn.trialfinder.sim.data.PoolAliasLookup;
 import cn.trialfinder.sim.jigsaw.FreeSpace;
@@ -59,6 +60,7 @@ public final class TrialChamberPredictor {
     private final SimStructureConfig config;
     private final PoolRegistry pools;
     private final StructureTemplateManager templateManager;
+    private final OverworldSampler biomeSampler;
     private final WorldgenRandom layoutRandom =
             new WorldgenRandom(new NonAtomicLegacyRandomSource(0L));
     private final ConnectorBuffer sourceConnectorBuffer = new ConnectorBuffer();
@@ -71,33 +73,36 @@ public final class TrialChamberPredictor {
     public TrialChamberPredictor(
             long seed, SimStructureConfig config, PoolRegistry pools,
             StructureTemplateManager templateManager) {
+        this(seed, config, pools, templateManager, true);
+    }
+
+    /** 测试专用：{@code applyBiomeCheck=false} 跳过生物群系过滤，用于对照过滤前后密室数量。 */
+    TrialChamberPredictor(
+            long seed, SimStructureConfig config, PoolRegistry pools,
+            StructureTemplateManager templateManager, boolean applyBiomeCheck) {
         this.seed = seed;
         this.config = config;
         this.pools = pools;
         this.templateManager = templateManager;
+        this.biomeSampler = applyBiomeCheck ? new OverworldSampler(seed) : null;
         this.maxDepth = config.size();
         this.useExpansionHack = config.useExpansionHack();
     }
 
     public Prediction predict(BlockPoint candidate) {
-        ChunkPos chunkPos = new ChunkPos(
-                Math.floorDiv(candidate.x(), 16), Math.floorDiv(candidate.z(), 16));
-        WorldgenRandom random = layoutRandom;
-        random.setLargeFeatureSeed(seed, chunkPos.x(), chunkPos.z());
-        int startY = config.sampleStartHeight(random);
-        BlockPos start = new BlockPos(
-                chunkPos.getMinBlockX(), startY, chunkPos.getMinBlockZ());
-        PoolAliasLookup aliases = PoolAliasLookup.create(
-                config.poolAliases(), start, seed);
-        StartLayout layout = createStart(start, random, aliases);
+        StartContext context = createStartContext(candidate);
+        StartLayout layout = context.layout();
         if (layout == null) {
+            return new Prediction(candidate, false, List.of());
+        }
+        if (!passesBiomeFilter(layout)) {
             return new Prediction(candidate, false, List.of());
         }
 
         List<LightPiece> pieces = new ArrayList<>();
         pieces.add(layout.piece());
         if (maxDepth > 0) {
-            generateChildren(layout, pieces, random, aliases);
+            generateChildren(layout, pieces, context.random(), context.aliases());
         }
 
         Set<SpawnerPoint> spawners = new HashSet<>();
@@ -118,6 +123,44 @@ public final class TrialChamberPredictor {
                 .thenComparingInt(VaultInfo::y)
                 .thenComparingInt(VaultInfo::z));
         return new Prediction(candidate, !sorted.isEmpty(), sorted, infos, vaultList);
+    }
+
+    /** 按候选位置构建起始布局：定位 chunk → 大特性种子 → 起始高度 → 起始 piece。 */
+    private StartContext createStartContext(BlockPoint candidate) {
+        ChunkPos chunkPos = new ChunkPos(
+                Math.floorDiv(candidate.x(), 16), Math.floorDiv(candidate.z(), 16));
+        WorldgenRandom random = layoutRandom;
+        random.setLargeFeatureSeed(seed, chunkPos.x(), chunkPos.z());
+        int startY = config.sampleStartHeight(random);
+        BlockPos start = new BlockPos(
+                chunkPos.getMinBlockX(), startY, chunkPos.getMinBlockZ());
+        PoolAliasLookup aliases = PoolAliasLookup.create(
+                config.poolAliases(), start, seed);
+        return new StartContext(createStart(start, random, aliases), random, aliases);
+    }
+
+    /**
+     * 官方 Structure.isValidBiome：在 biomePosition 采样生物群系，须属于
+     * #minecraft:has_structure/trial_chambers 标签，否则该结构不存在。
+     * biomeSampler == null 仅用于测试对照（构造器显式关闭过滤）。
+     */
+    private boolean passesBiomeFilter(StartLayout layout) {
+        if (biomeSampler == null) {
+            return true;
+        }
+        BlockPos biomePos = layout.biomePosition();
+        return biomeSampler.isTrialChamberBiome(biomeSampler.sampleBiome(
+                biomePos.getX(), biomePos.getY(), biomePos.getZ()));
+    }
+
+    /**
+     * 测试专用：候选能否通过起始布局 + 生物群系判定。
+     * 对试炼密室，起始 piece 必有刷怪笼，故等价于 {@link #predict} 的 exists，
+     * 但不展开子 piece，速度快一个量级，用于过滤前后密室数量对拍。
+     */
+    boolean chamberPasses(BlockPoint candidate) {
+        StartContext context = createStartContext(candidate);
+        return context.layout() != null && passesBiomeFilter(context.layout());
     }
 
     private StartLayout createStart(
@@ -611,6 +654,11 @@ public final class TrialChamberPredictor {
     }
 
     private record StartLayout(LightPiece piece, BlockPos biomePosition) {
+    }
+
+    /** 起始布局 + 后续生成子 piece 所需的随机流与池别名查找。 */
+    private record StartContext(
+            StartLayout layout, WorldgenRandom random, PoolAliasLookup aliases) {
     }
 
     private record LightPiece(

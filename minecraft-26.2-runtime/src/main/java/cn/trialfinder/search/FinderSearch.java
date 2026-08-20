@@ -47,6 +47,8 @@ public final class FinderSearch {
     private final TrialResultAccumulator accumulatedResults = new TrialResultAccumulator();
     private final Map<SearchResult, List<BlockPoint>> resultSources = new HashMap<>();
     private TrialSearchCheckpoint checkpoint;
+    private int checkTop;
+    private Function<List<SearchResult>, List<ResultWriter.CheckResult>> checkTopChecker;
 
     public FinderSearch(FinderConfig config, Path output, ProgressReporter progress,
                         PoolRegistry pools, StructureTemplateManager templates) {
@@ -55,6 +57,13 @@ public final class FinderSearch {
         this.progress = progress;
         this.pools = pools;
         this.templates = templates;
+    }
+
+    /** 启用 check-top：统计前 N 个结果的快/慢刷怪笼与宝库数，追加到输出。 */
+    public void enableCheckTop(int checkTop,
+                               Function<List<SearchResult>, List<ResultWriter.CheckResult>> checker) {
+        this.checkTop = checkTop;
+        this.checkTopChecker = checker;
     }
 
     public void run() throws IOException {
@@ -602,7 +611,13 @@ public final class FinderSearch {
     }
 
     public synchronized void save() throws IOException {
-        ResultWriter.write(output, accumulatedResults.results());
+        List<SearchResult> results = accumulatedResults.results();
+        if (this.checkTop > 0 && this.checkTopChecker != null) {
+            List<ResultWriter.CheckResult> checks = this.checkTopChecker.apply(results);
+            ResultWriter.write(output, results, checks);
+        } else {
+            ResultWriter.write(output, results);
+        }
     }
 
     static int fineThreadCount(int availableProcessors) {

@@ -69,7 +69,12 @@ java -jar minecraft-26.2-runtime\build\libs\trial-spawner-finder-1.0.0.jar --see
 trial.bat --seed 123 --search-radius-blocks 5000 --scan-threads 8 --trial-min-spawners 20
 ```
 
-支持的键：`--seed`、`--search-center-x`、`--search-center-z`、`--search-radius-blocks`、`--full-world`(true/false)、`--search-area-shape`(circle/square)、`--trial-cluster-radius-blocks`、`--trial-area-shape`(circle/square)、`--trial-min-structures`、`--trial-min-spawners`、`--scan-threads`、`--scan-shard-size-blocks`、`--trial-search-mode`(auto/exact)、`--trial-prediction-calibration-structures`。另有 `--no-progress` 完全关闭进度条（用于脚本/CI 输出）。
+支持的键：`--seed`、`--search-center-x`、`--search-center-z`、`--search-radius-blocks`、`--full-world`(true/false)、`--search-area-shape`(circle/square)、`--trial-cluster-radius-blocks`、`--trial-area-shape`(circle/square)、`--trial-min-structures`、`--trial-min-spawners`、`--scan-threads`、`--scan-shard-size-blocks`、`--trial-search-mode`(auto/exact)、`--trial-prediction-calibration-structures`。
+
+另有三个独立开关：
+- `--check-top N`：统计前 N 个结果的快/慢刷怪笼与宝库数，追加到 CSV/TXT 末尾三列（快速刷怪笼、慢速刷怪笼、宝库数量）。
+- `--no-progress`：完全关闭进度条（用于脚本/CI 输出）。
+- `--help` / `-h` / `help`：显示完整参数说明。
 
 不带参数时仍从 `finder.properties` 读取全部配置。用 `trial.bat --help`（或 `-h`、`help`）显示完整参数说明。
 

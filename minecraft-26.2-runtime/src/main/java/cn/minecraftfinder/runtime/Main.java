@@ -5,6 +5,7 @@ import cn.minecraftfinder.core.ProgressReporter;
 import cn.minecraftfinder.core.ResultFiles;
 import cn.trialfinder.config.FinderConfig;
 import cn.trialfinder.config.TrialSearchMode;
+import cn.trialfinder.query.CheckTopChecker;
 import cn.trialfinder.query.PointQuery;
 import cn.trialfinder.query.QueryRenderer;
 import cn.trialfinder.search.FinderSearch;
@@ -109,17 +110,20 @@ public final class Main {
                   --trial-search-mode <auto|exact>        搜索模式
                   --trial-prediction-calibration-structures <int>
                                                           启动校准密室数量
+                  --check-top <int>                       统计前 N 个结果的快/慢刷怪笼与宝库
                   --no-progress                           完全关闭进度条（脚本/CI 用）
 
                 定点查询参数:
                   query --coords x,z x,z ...              查询点（逗号分隔，可多个）
                   query --file <path>                     查询点文件（每行 x z，或结果 CSV）
                   query --radius <int>                    查询半径（默认 1000）
+                  query --seed <long>                     世界种子（默认读 finder.properties）
                   query --output <table|csv>              输出格式（默认 table）
 
                 示例:
                   trial.bat --seed 123 --search-radius-blocks 5000
                   trial.bat query --coords 0,0 --radius 1000
+                  trial.bat query --seed 123 --coords 0,0 --radius 1000
                 """);
     }
 
@@ -201,14 +205,34 @@ public final class Main {
     private static void runTrialSearch(String[] args, boolean noProgress) throws IOException {
         FinderConfig base = loadConfig();
         FinderConfig config = applyOverrides(base, args);
+        int checkTop = parseCheckTop(args);
         Environment env = loadEnvironment();
         Path outputPath = createOutputPath();
         ConsoleProgressReporter console = new ConsoleProgressReporter();
         ProgressReporter progress = noProgress ? ProgressReporter.NONE : console;
         FinderSearch search = new FinderSearch(
                 config, outputPath, progress, env.pools(), env.templates());
+        if (checkTop > 0) {
+            CheckTopChecker checker = new CheckTopChecker(
+                    config.seed(), env.pools(), env.templates());
+            search.enableCheckTop(checkTop, results -> checker.check(results, checkTop));
+            System.out.println("已启用 check-top：统计前 " + checkTop + " 个结果的快/慢刷怪笼与宝库");
+        }
         search.run();
         console.clearLine();
+    }
+
+    /** 解析 {@code --check-top N}；无则返回 0。 */
+    private static int parseCheckTop(String[] args) {
+        if (args == null) {
+            return 0;
+        }
+        for (int i = 0; i < args.length - 1; i++) {
+            if ("--check-top".equals(args[i])) {
+                return Integer.parseInt(args[i + 1]);
+            }
+        }
+        return 0;
     }
 
     /**
@@ -237,6 +261,10 @@ public final class Main {
         for (int i = 0; i < args.length; i++) {
             String key = args[i];
             if ("--no-progress".equals(key)) {
+                continue;
+            }
+            if ("--check-top".equals(key)) {
+                i++; // 跳过其值（由 parseCheckTop 处理）
                 continue;
             }
             if (!key.startsWith("--")) {
@@ -279,6 +307,7 @@ public final class Main {
         String file = null;
         int radius = 1000;
         String output = "table";
+        Long seed = null;
         for (int i = 1; i < args.length; i++) {
             String arg = args[i];
             switch (arg) {
@@ -302,6 +331,11 @@ public final class Main {
                         output = args[++i];
                     }
                 }
+                case "--seed" -> {
+                    if (i + 1 < args.length) {
+                        seed = Long.parseLong(args[++i]);
+                    }
+                }
                 default -> throw new IllegalArgumentException("未知 query 参数: " + arg);
             }
         }
@@ -316,10 +350,11 @@ public final class Main {
         }
 
         FinderConfig config = loadConfig();
+        long effectiveSeed = seed != null ? seed : config.seed();
         Environment env = loadEnvironment();
-        PointQuery query = new PointQuery(config.seed(), radius, env.pools(), env.templates());
+        PointQuery query = new PointQuery(effectiveSeed, radius, env.pools(), env.templates());
         System.out.println("=== 定点查询 ===");
-        System.out.println("seed: " + config.seed() + "  radius: " + radius
+        System.out.println("seed: " + effectiveSeed + "  radius: " + radius
                 + "  查询点: " + points.size() + "  输出: " + output);
         List<PointQuery.QueryResult> results = new ArrayList<>(points.size());
         for (int[] point : points) {

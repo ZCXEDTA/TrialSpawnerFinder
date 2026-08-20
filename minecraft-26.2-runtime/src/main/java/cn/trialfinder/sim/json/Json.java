@@ -294,9 +294,9 @@ public final class Json {
             if (num.isEmpty() || num.equals("-")) {
                 throw new JsonParseException("无效数字 @" + start);
             }
-            return floating
-                    ? new Num((int) Double.parseDouble(num))
-                    : new Num(Integer.parseInt(num));
+            // 注意：统一按 double 解析。原实现对浮点分支强转 int，会把 -0.5037500262260437 这类
+            // 噪声/样条参数截断成 0；样条 JSON 与 noise JSON 依赖完整的 double 精度。
+            return new Num(Double.parseDouble(num));
         }
 
         void expect(String literal) {
