@@ -27,6 +27,29 @@ class FinderSearchTest {
     }
 
     @Test
+    void statusMetricIncludesRatioWhenTotalKnown() {
+        assertEquals("候选：25/100=25%", FinderSearch.formatStatusMetric("候选", 25, 100));
+        assertEquals("候选 25", FinderSearch.formatStatusMetric("候选", 25, -1));
+        assertEquals("候选：150/150=100%", FinderSearch.formatStatusMetric("候选", 150, 100));
+        assertEquals("聚类：0/10=0%", FinderSearch.formatStatusMetric("聚类", 0, 10));
+    }
+
+    @Test
+    void statusProjectsClusterAndPruneTotalsFromCandidateProgress() {
+        assertEquals(
+                "候选：100/1,000=10%；聚类：5/50=10%；裁剪：2/20=10%",
+                FinderSearch.formatStatus(100, 1_000, 5, 2));
+        assertEquals(
+                "候选：0/1,000=0%；聚类：0/0=0%；裁剪：0/0=0%",
+                FinderSearch.formatStatus(0, 1_000, 0, 0));
+        assertEquals(
+                "候选：150/150=100%；聚类：20/20=100%；裁剪：7/7=100%",
+                FinderSearch.formatStatus(150, 100, 20, 7));
+        assertEquals(50, FinderSearch.projectTotal(5, 100, 1_000));
+        assertEquals(20, FinderSearch.projectTotal(20, 100, 50));
+    }
+
+    @Test
     void predictedCoordinatesUseTheExactCenterRankingPath() {
         FinderConfig config = new FinderConfig(
                 1, 0, 0, 10_000, false, AreaShape.CIRCLE,

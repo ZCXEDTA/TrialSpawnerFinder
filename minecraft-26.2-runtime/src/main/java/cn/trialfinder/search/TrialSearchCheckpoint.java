@@ -27,6 +27,8 @@ final class TrialSearchCheckpoint {
     private static final int MAGIC = 0x54534631;
     private static final int FORMAT_VERSION = 6;
     private static final String TEMPLATE_FINGERPRINT = "vanilla-trial-chambers-26.2";
+    /** 与结果 CSV/TXT 同目录下的检查点文件夹名。 */
+    static final String DIRECTORY_NAME = "trial-spawner-checkpoints";
 
     private final Path path;
     private final String fingerprint;
@@ -51,10 +53,21 @@ final class TrialSearchCheckpoint {
         this.statistics = statistics;
     }
 
+    /**
+     * 检查点目录：结果文件（或工作目录）同级下的 {@link #DIRECTORY_NAME}。
+     */
+    static Path directoryFor(Path outputOrDirectory) {
+        Path absolute = outputOrDirectory.toAbsolutePath().normalize();
+        Path base = Files.isDirectory(absolute) ? absolute : absolute.getParent();
+        if (base == null) {
+            base = Path.of("").toAbsolutePath();
+        }
+        return base.resolve(DIRECTORY_NAME);
+    }
+
     static TrialSearchCheckpoint open(
             FinderConfig config, Path requestedOutput) throws IOException {
-        return open(config, requestedOutput,
-                Path.of("checkpoints", "trial-spawner"));
+        return open(config, requestedOutput, directoryFor(requestedOutput));
     }
 
     static TrialSearchCheckpoint open(
@@ -107,6 +120,17 @@ final class TrialSearchCheckpoint {
 
     void delete() throws IOException {
         Files.deleteIfExists(path);
+    }
+
+    /**
+     * 按配置指纹删除检查点（停止搜索时清空进度）。线程数不参与指纹。
+     *
+     * @param outputOrDirectory 结果文件路径或其父目录（与 {@link #open} 一致）
+     */
+    static void deleteFor(FinderConfig config, Path outputOrDirectory) throws IOException {
+        Path path = directoryFor(outputOrDirectory).resolve(fingerprint(config) + ".bin");
+        Files.deleteIfExists(path);
+        Files.deleteIfExists(path.resolveSibling(path.getFileName() + ".tmp"));
     }
 
     private void write() throws IOException {
@@ -233,11 +257,22 @@ final class TrialSearchCheckpoint {
     static String fingerprint(FinderConfig config) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] bytes = digest.digest(("minecraft=26.2\n"
+            // scanThreads 不参与指纹，便于暂停后改线程数续扫同一检查点。
+            String payload = "minecraft=26.2\n"
                     + "templates=" + TEMPLATE_FINGERPRINT + "\n"
                     + "checkpoint-format=" + FORMAT_VERSION + "\n"
-                    + config)
-                    .getBytes(StandardCharsets.UTF_8));
+                    + "seed=" + config.seed() + "\n"
+                    + "searchCenterX=" + config.searchCenterX() + "\n"
+                    + "searchCenterZ=" + config.searchCenterZ() + "\n"
+                    + "searchRadiusBlocks=" + config.searchRadiusBlocks() + "\n"
+                    + "fullWorld=" + config.fullWorld() + "\n"
+                    + "searchAreaShape=" + config.searchAreaShape() + "\n"
+                    + "clusterRadiusBlocks=" + config.clusterRadiusBlocks() + "\n"
+                    + "areaShape=" + config.areaShape() + "\n"
+                    + "minStructures=" + config.minStructures() + "\n"
+                    + "minSpawners=" + config.minSpawners() + "\n"
+                    + "scanShardSizeBlocks=" + config.scanShardSizeBlocks() + "\n";
+            byte[] bytes = digest.digest(payload.getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(bytes);
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("当前 Java 不支持 SHA-256", e);

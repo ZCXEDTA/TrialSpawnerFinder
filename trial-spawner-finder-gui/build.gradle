@@ -1,0 +1,56 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+version = '1.0.0'
+
+base {
+    archivesName = 'trial-spawner-finder-gui'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // 编译期需要类型；运行时已打进 minecraft-26.2-runtime 的 fat jar。
+    // 不能用 implementation：runtime 与库模块都产出 trial-spawner-finder-*.jar，
+    // application 的 distTar/distZip 会因同名条目失败。
+    compileOnly project(':finder-core')
+    compileOnly project(':trial-spawner-finder')
+    implementation project(':minecraft-26.2-runtime')
+}
+
+application {
+    mainClass = 'cn.trialfinder.gui.TrialSpawnerFinderFrame'
+}
+
+// 根目录 icon.png / font.ttf 打进 classpath。
+processResources {
+    from(rootProject.file('icon.png')) {
+        into '.'
+    }
+    from(rootProject.file('font.ttf')) {
+        into '.'
+    }
+}
+
+// 本模块以自包含 fat jar 为交付物；禁用 application 发行包，避免与 fat jar 重复打包。
+tasks.named('distTar') { enabled = false }
+tasks.named('distZip') { enabled = false }
+
+jar {
+    dependsOn configurations.runtimeClasspath
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    exclude('META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', 'META-INF/MANIFEST.MF')
+    exclude('module-info.class')
+    manifest {
+        attributes 'Main-Class': 'cn.trialfinder.gui.TrialSpawnerFinderFrame',
+                   'Implementation-Title': 'TrialSpawnerFinderGUI',
+                   'Implementation-Version': project.version
+    }
+}

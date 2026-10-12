@@ -26,15 +26,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.function.Function;
 import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.Function;
 
 public final class FinderSearch {
     private static final int IN_FLIGHT_TASKS_PER_THREAD = 4;
     private static final int STRUCTURE_TASK_BATCH_SIZE = 16;
+
+    public enum RunOutcome {
+        COMPLETED,
+        PAUSED,
+        CANCELLED
+    }
 
     private final FinderConfig config;
     private final PoolRegistry pools;
@@ -46,6 +52,10 @@ public final class FinderSearch {
     private TrialSearchCheckpoint checkpoint;
     private int checkTop;
     private Function<List<SearchResult>, List<ResultWriter.CheckResult>> checkTopChecker;
+    private boolean saveResultsOnComplete = true;
+
+    private volatile boolean pauseRequested;
+    private volatile boolean cancelRequested;
 
     public FinderSearch(FinderConfig config, Path output, ProgressReporter progress,
                         PoolRegistry pools, StructureTemplateManager templates) {
@@ -56,6 +66,12 @@ public final class FinderSearch {
         this.templates = templates;
     }
 
+    /** GUI 等场景可关闭完成后自动写 CSV/TXT，改为由调用方手动导出。 */
+    public FinderSearch setSaveResultsOnComplete(boolean saveResultsOnComplete) {
+        this.saveResultsOnComplete = saveResultsOnComplete;
+        return this;
+    }
+
     /** 启用 check-top：统计前 N 个结果的快/慢刷怪笼与宝库数，追加到输出。 */
     public void enableCheckTop(int checkTop,
                                Function<List<SearchResult>, List<ResultWriter.CheckResult>> checker) {
@@ -63,25 +79,72 @@ public final class FinderSearch {
         this.checkTopChecker = checker;
     }
 
-    public void run() throws IOException {
+    /** 请求在下一分片边界暂停并退出 {@link #run()}，保留检查点。 */
+    public void pause() {
+        pauseRequested = true;
+    }
+
+    /** 请求在下一分片边界停止并退出；由调用方删除检查点。 */
+    public void cancel() {
+        cancelRequested = true;
+    }
+
+    public void resetControl() {
+        pauseRequested = false;
+        cancelRequested = false;
+    }
+
+    public List<SearchResult> results() {
+        return accumulatedResults.results();
+    }
+
+    public Path outputPath() {
+        return output;
+    }
+
+    /**
+     * 删除与当前配置对应的检查点（停止时清空进度）。
+     *
+     * @param outputOrDirectory 结果文件路径或其父目录，检查点位于旁的
+     *                          {@code trial-spawner-checkpoints/}
+     */
+    public static void discardCheckpoint(FinderConfig config, Path outputOrDirectory)
+            throws IOException {
+        TrialSearchCheckpoint.deleteFor(config, outputOrDirectory);
+    }
+
+    public RunOutcome run() throws IOException {
+        resetControl();
         Instant started = Instant.now();
         System.out.println("使用有界分片流水线扫描并预测试炼密室...");
         System.out.println(ResultWriter.parameterLine(config));
         System.out.println("试炼密室自动分片：边长 %,d 方块；共 %,d 片。".formatted(
                 ShardedClusterScanner.processingShardSizeBlocks(config),
                 ShardedClusterScanner.processingShardCount(config)));
-        SearchStatistics statistics = execute();
-
-        save();
-        checkpoint.delete();
-        System.out.println((
-                "搜索完成：%d 个达标结果；扫描候选 %,d；预测 %,d 座/%,d 组；"
-                        + "严格裁剪 %,d 组；耗时 %s。")
-                .formatted(accumulatedResults.results().size(), statistics.scannedCandidates(),
-                        statistics.predictedStructures(), statistics.predictedClusters(),
-                        statistics.prunedClusters(), elapsed(started)));
-        System.out.println("结果文件：" + output.toAbsolutePath());
-        System.out.println("对齐文本：" + ResultWriter.textPath(output).toAbsolutePath());
+        try {
+            SearchStatistics statistics = execute();
+            if (saveResultsOnComplete) {
+                save();
+            }
+            checkpoint.delete();
+            System.out.println((
+                    "搜索完成：%d 个达标结果；扫描候选 %,d；预测 %,d 座/%,d 组；"
+                            + "严格裁剪 %,d 组；耗时 %s。")
+                    .formatted(accumulatedResults.results().size(), statistics.scannedCandidates(),
+                            statistics.predictedStructures(), statistics.predictedClusters(),
+                            statistics.prunedClusters(), elapsed(started)));
+            if (saveResultsOnComplete) {
+                System.out.println("结果文件：" + output.toAbsolutePath());
+                System.out.println("对齐文本：" + ResultWriter.textPath(output).toAbsolutePath());
+            }
+            return RunOutcome.COMPLETED;
+        } catch (SearchPausedException e) {
+            System.out.println("搜索已暂停：进度已写入检查点。");
+            return RunOutcome.PAUSED;
+        } catch (SearchCancelledException e) {
+            System.out.println("搜索已停止。");
+            return RunOutcome.CANCELLED;
+        }
     }
 
     private SearchStatistics execute() throws IOException {
@@ -96,7 +159,7 @@ public final class FinderSearch {
         }
         System.out.println("搜索模式：精确预测排名 + 剪枝");
 
-        int threadCount = fineThreadCount(Runtime.getRuntime().availableProcessors());
+        int threadCount = searchThreadCount(config);
         int maxInFlight = threadCount * IN_FLIGHT_TASKS_PER_THREAD;
         ThreadLocal<TrialChamberPredictor> predictors =
                 ThreadLocal.withInitial(() -> new TrialChamberPredictor(
@@ -112,12 +175,13 @@ public final class FinderSearch {
                                 "总进度", checkpoint.completedCount(),
                                 shardCount, "个", predictionState.scannedCandidates,
                                 estimatedCandidates),
-                        status(predictionState));
+                        status(predictionState, estimatedCandidates));
                 ShardedClusterScanner.scanBatches(
                         config,
                         progress,
                         shardIndex -> !checkpoint.isCompleted(shardIndex),
                         batch -> {
+                            awaitControl();
                             predictionState.scannedCandidates += batch.candidateCount();
                             predictionState.predictedClusters += batch.clusters().size();
                             BatchResults batchResults = processBatch(
@@ -138,12 +202,16 @@ public final class FinderSearch {
                                             batch.shardCount(), "个",
                                             predictionState.scannedCandidates,
                                             estimatedCandidates),
-                                    status(predictionState));
+                                    status(predictionState, estimatedCandidates));
+                            awaitControl();
                         });
+            } catch (SearchPausedException | SearchCancelledException e) {
+                throw e;
             } catch (UncheckedIOException e) {
                 throw e.getCause();
             }
         }
+        awaitControl();
         return new SearchStatistics(
                 predictionState.scannedCandidates,
                 predictionState.predictedStructures,
@@ -151,10 +219,68 @@ public final class FinderSearch {
                 predictionState.prunedClusters);
     }
 
-    private static String status(PredictionState state) {
-        return "候选 %,d；聚类 %,d；裁剪 %,d"
-                .formatted(state.scannedCandidates, state.predictedClusters,
-                        state.prunedClusters);
+    private void awaitControl() {
+        if (cancelRequested) {
+            throw new SearchCancelledException();
+        }
+        if (pauseRequested) {
+            throw new SearchPausedException();
+        }
+    }
+
+    private static String status(PredictionState state, long estimatedCandidates) {
+        return formatStatus(
+                state.scannedCandidates, estimatedCandidates,
+                state.predictedClusters, state.prunedClusters);
+    }
+
+    /**
+     * 状态栏细节：候选用预估总数；聚类/裁剪按候选进度同比例外推总数，
+     * 格式均为 {@code 标签：已完成/总数=百分比%}。
+     */
+    static String formatStatus(
+            long scannedCandidates, long estimatedCandidates,
+            long predictedClusters, long prunedClusters) {
+        long candidateTotal = Math.max(estimatedCandidates, scannedCandidates);
+        long clusterTotal = projectTotal(
+                predictedClusters, scannedCandidates, candidateTotal);
+        long pruneTotal = projectTotal(
+                prunedClusters, scannedCandidates, candidateTotal);
+        return formatStatusMetric("候选", scannedCandidates, candidateTotal)
+                + "；"
+                + formatStatusMetric("聚类", predictedClusters, clusterTotal)
+                + "；"
+                + formatStatusMetric("裁剪", prunedClusters, pruneTotal);
+    }
+
+    /**
+     * 按参考进度比例外推总数。参考尚未开始时取已完成数；
+     * 外推结果若小于已完成数则抬到已完成数（比例不超过 100%）。
+     */
+    static long projectTotal(long completed, long referenceCompleted, long referenceTotal) {
+        if (referenceCompleted <= 0 || referenceTotal < 0) {
+            return Math.max(0, completed);
+        }
+        long projected = Math.round(
+                completed * (double) referenceTotal / (double) referenceCompleted);
+        return Math.max(completed, projected);
+    }
+
+    /**
+     * 状态栏单项：{@code 标签：已完成/总数=百分比%}；
+     * {@code total < 0} 表示未知，保持 {@code 标签 已完成}。
+     * 已完成超过总数时，把总数抬到已完成数，保证比例不超过 100%。
+     */
+    static String formatStatusMetric(String label, long completed, long total) {
+        if (total < 0) {
+            return "%s %,d".formatted(label, completed);
+        }
+        long effectiveTotal = Math.max(total, completed);
+        if (effectiveTotal <= 0) {
+            return "%s：0/0=0%%".formatted(label);
+        }
+        long percent = Math.min(100L, completed * 100L / effectiveTotal);
+        return "%s：%,d/%,d=%d%%".formatted(label, completed, effectiveTotal, percent);
     }
 
     private static TrialSearchCheckpoint.Statistics statistics(
@@ -399,6 +525,11 @@ public final class FinderSearch {
         }
     }
 
+    static int searchThreadCount(FinderConfig config) {
+        int configured = config.scanThreads();
+        return Math.max(1, Math.min(64, configured));
+    }
+
     static int fineThreadCount(int availableProcessors) {
         return Math.max(1, availableProcessors - 2);
     }
@@ -452,5 +583,19 @@ public final class FinderSearch {
     private record SearchStatistics(
             long scannedCandidates, long predictedStructures, long predictedClusters,
             long prunedClusters) {
+    }
+
+    /** 暂停退出：检查点已提交，不删除。 */
+    public static final class SearchPausedException extends RuntimeException {
+        public SearchPausedException() {
+            super("搜索已暂停");
+        }
+    }
+
+    /** 停止退出：由调用方删除检查点。 */
+    public static final class SearchCancelledException extends RuntimeException {
+        public SearchCancelledException() {
+            super("搜索已停止");
+        }
     }
 }

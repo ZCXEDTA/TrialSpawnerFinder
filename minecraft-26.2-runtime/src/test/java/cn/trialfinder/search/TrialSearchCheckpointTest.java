@@ -57,6 +57,25 @@ class TrialSearchCheckpointTest {
         assertTrue(restored.isCompleted(2));
     }
 
+    @Test
+    void defaultDirectoryIsBesideResultFile() throws Exception {
+        FinderConfig config = config();
+        Path output = directory.resolve("results.csv");
+        Path expectedDir = directory.resolve(TrialSearchCheckpoint.DIRECTORY_NAME);
+        TrialSearchCheckpoint checkpoint = TrialSearchCheckpoint.open(config, output);
+        checkpoint.commit(1, List.of(), Map.of(),
+                new TrialSearchCheckpoint.Statistics(1, 0, 0, 0));
+
+        assertEquals(expectedDir, TrialSearchCheckpoint.directoryFor(output));
+        assertTrue(java.nio.file.Files.isDirectory(expectedDir));
+        assertTrue(java.nio.file.Files.exists(
+                expectedDir.resolve(TrialSearchCheckpoint.fingerprint(config) + ".bin")));
+
+        TrialSearchCheckpoint.deleteFor(config, directory);
+        assertFalse(java.nio.file.Files.exists(
+                expectedDir.resolve(TrialSearchCheckpoint.fingerprint(config) + ".bin")));
+    }
+
     private static FinderConfig config() {
         return new FinderConfig(
                 1, 0, 0, 10_000, false, AreaShape.CIRCLE,
