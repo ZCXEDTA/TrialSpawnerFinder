@@ -242,6 +242,11 @@ GUI 测试版：修复精细生成阶段的并行度回退，发布包同时包�
 - **输出**：CSV（UTF-8 BOM，Excel 直接打开）+ 对齐 TXT；`--check-top` 统计快/慢刷怪笼与宝库数。
 - 搜索仅保留单一精确预测模式（早期 AUTO/EXACT 双模式与搜索期自我比对复核已移除）。
 
+## 致谢
+
+- **GUI 界面**：感谢 [@SunnySlopes](https://github.com/SunnySlopes) 通过 [PR #4](https://github.com/ZCXEDTA/TrialSpawnerFinder/pull/4) 贡献 Swing 图形界面、字体与图标。
+- **上游项目**：本仓库 fork 自 [qk-yiyihehe/TrialSpawnerFinder](https://github.com/qk-yiyihehe/TrialSpawnerFinder)，感谢原作者的基础工作。
+
 ## 许可证
 
 Copyright (C) 2026 ZCXEDTA and contributors
