@@ -241,3 +241,9 @@ GUI 测试版：修复精细生成阶段的并行度回退，发布包同时包�
 - **定点查询**：单/批量坐标的刷怪笼明细与宝库列表（`query`）。
 - **输出**：CSV（UTF-8 BOM，Excel 直接打开）+ 对齐 TXT；`--check-top` 统计快/慢刷怪笼与宝库数。
 - 搜索仅保留单一精确预测模式（早期 AUTO/EXACT 双模式与搜索期自我比对复核已移除）。
+
+## 许可证
+
+Copyright (C) 2026 ZCXEDTA and contributors
+
+本项目以 **GNU General Public License v3.0**（`GPL-3.0-only`）发布。你可以自由使用、修改和再分发本项目，但基于本项目的衍生作品必须以相同许可证开源。完整条款见 [LICENSE](LICENSE)。

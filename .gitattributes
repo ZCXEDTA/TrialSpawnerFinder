@@ -4,6 +4,7 @@
 *.properties text eol=lf
 *.json text eol=lf
 *.md text eol=lf
+LICENSE text eol=lf
 *.ps1 text eol=crlf
 *.bat text eol=crlf
 gradlew text eol=lf

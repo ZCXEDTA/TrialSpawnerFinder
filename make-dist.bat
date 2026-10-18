@@ -13,6 +13,7 @@ rem      start-gui.bat                    (GUI launcher: bundled runtime first)
 rem      finder.properties                (config)
 rem      runtime\                         (jlink JRE with java.desktop, ~50 MB)
 rem      README.md
+rem      LICENSE                          (GPL-3.0)
 rem  Optionally zip it into dist.zip.
 rem
 rem  Prerequisites: JDK 25 (javac + jlink) in JAVA_HOME / JDK25_HOME.
@@ -59,6 +60,7 @@ copy /y trial.bat dist\ >nul
 copy /y start-gui.bat dist\ >nul
 copy /y finder.properties dist\ >nul
 copy /y README.md dist\ >nul
+copy /y LICENSE dist\ >nul
 
 rem ---- jlink runtime (java.desktop required by the Swing GUI) ----
 echo Generating jlink runtime...
