@@ -225,10 +225,8 @@ GUI 测试版：修复精细生成阶段的并行度回退，发布包同时包�
 
 ### v2.0.0（2026-08-29 · Minecraft 26.2）
 
-B 流核心 C++ 移植（JNI 混合架构）与输出自文档化。
+输出自文档化与搜索模式合并。核心仍为纯 Java 实现。
 
-- **C++ 逻辑核心**：Jigsaw 拼接 / 试炼密室预测器整体移植到 `src/main/cpp`（`JigsawPlacement`、`HandTrialChamberPredictor`、`StructureTemplateManager`、NBT 解析、WorldgenRandom），与 Java oracle 逐位一致（37/37 GoogleTest；16 组合 count/exists、4 组完整刷怪笼列表对拍）。性能基准与一致性说明见 `src/main/cpp/reports/`。
-- **JNI 桥接**：`BFlowNative` ↔ `jni_bridge.cpp`，Java 保留资源加载与并发调度，C++ 执行 B 流拼接；运行时分发仍为纯 Java（JNI 接口尚未接入运行时调度）。
 - **生物群系筛选**：新增气候/噪声模拟（`OverworldSampler`），公共构造器默认启用，过滤唯一排除 `deep_dark`。
 - **输出自文档化**：结果 CSV/TXT 头部写入本次运行的全部参数（`#` 注释），`query --file` 可直接回读；启动时控制台回显生效参数。
 - **搜索模式合并**：AUTO/EXACT 合并为单一精确模式，移除搜索期冗余复核。
