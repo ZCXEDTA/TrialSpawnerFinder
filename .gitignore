@@ -27,3 +27,7 @@ dist/
 dist.zip
 query-*.csv
 query-*.txt
+
+# 本地测试包
+dist-test/
+dist-test.zip

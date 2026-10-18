@@ -159,7 +159,7 @@ public final class FinderSearch {
         }
         System.out.println("搜索模式：精确预测排名 + 剪枝");
 
-        int threadCount = searchThreadCount(config);
+        int threadCount = fineThreadCount(Runtime.getRuntime().availableProcessors());
         int maxInFlight = threadCount * IN_FLIGHT_TASKS_PER_THREAD;
         ThreadLocal<TrialChamberPredictor> predictors =
                 ThreadLocal.withInitial(() -> new TrialChamberPredictor(
@@ -523,11 +523,6 @@ public final class FinderSearch {
         } else {
             ResultWriter.write(output, results, null, parameterLines);
         }
-    }
-
-    static int searchThreadCount(FinderConfig config) {
-        int configured = config.scanThreads();
-        return Math.max(1, Math.min(64, configured));
     }
 
     static int fineThreadCount(int availableProcessors) {

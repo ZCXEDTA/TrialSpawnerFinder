@@ -2,7 +2,7 @@
 
 用于在 Minecraft 26.2 世界种子中查找试炼密室密集区域，并统计指定范围内实际生成的试炼刷怪笼。
 
-当前版本：**v2.0.0**（对应 Minecraft 26.2）。可从 [Releases](https://github.com/ZCXEDTA/TrialSpawnerFinder/releases) 下载现成的 `dist.zip` 免安装包，或用 `make-dist.bat` 自行构建。
+当前版本：**v2.0.0-beta.1**（对应 Minecraft 26.2）。可从 [Releases](https://github.com/ZCXEDTA/TrialSpawnerFinder/releases) 下载现成的 `dist.zip` 免安装包，或用 `make-dist.bat` 自行构建。
 
 ## 使用方法
 
@@ -36,7 +36,7 @@ gradlew :trial-spawner-finder-gui:run
 
 ```
 gradlew :trial-spawner-finder-gui:jar
-java -jar trial-spawner-finder-gui\build\libs\trial-spawner-finder-gui-2.0.0.jar
+java -jar trial-spawner-finder-gui\build\libs\trial-spawner-finder-gui-2.0.0-beta.1.jar
 ```
 
 工作目录优先使用当前可写目录（结果文件、`trial-spawner-checkpoints\` 检查点写在这里）；若当前目录不可写（例如从 System32 启动），则回退到 jar 所在目录或用户主目录。
@@ -105,20 +105,23 @@ java -jar trial-spawner-finder-gui\build\libs\trial-spawner-finder-gui-2.0.0.jar
 
 ## 免安装 Java 的发布包（带精简 JRE）
 
-`dist\` 目录或 `dist.zip` 是**自包含发布包**——内含用 `jlink` 精简的 JRE（约 30 MB，只需 `java.base` 模块），**目标机器不需要安装任何 Java**，解压即用：
+`dist\` 目录或 `dist.zip` 是**自包含发布包**——内含用 `jlink` 精简的 JRE（约 50 MB，含 GUI 所需的 `java.desktop` 模块），**目标机器不需要安装任何 Java**，解压即用：
 
 ```
 dist\
-├── trial-spawner-finder-2.0.0.jar   # 主程序（零第三方依赖）
-├── trial.bat                        # 启动器（优先用捆绑 runtime）
-├── finder.properties                # 配置
-├── runtime\                         # jlink 精简 JRE（约 30 MB）
+├── trial-spawner-finder-2.0.0-beta.1.jar   # CLI 主程序（零第三方依赖）
+├── TrialSpawnerFinder-GUI.jar              # 图形界面
+├── trial.bat                               # CLI 启动器（优先用捆绑 runtime）
+├── start-gui.bat                           # GUI 启动器（优先用捆绑 runtime）
+├── finder.properties                       # 配置
+├── runtime\                                # jlink 精简 JRE（约 50 MB）
 └── README.md
 ```
 
 解压后在 `dist` 目录运行：
 
 ```
+start-gui.bat
 trial.bat --seed 123 --search-radius-blocks 50000
 trial.bat query --seed 0 --coords 0,0 --radius 1028
 ```
@@ -147,7 +150,7 @@ trial.bat query --coords 3145,7232 --radius 2000
 也可以绕过脚本直接用 `java -jar`（需已构建，JDK 25）：
 
 ```
-java -jar minecraft-26.2-runtime\build\libs\trial-spawner-finder-2.0.0.jar --seed 123
+java -jar minecraft-26.2-runtime\build\libs\trial-spawner-finder-2.0.0-beta.1.jar --seed 123
 ```
 
 ## 命令行参数
@@ -191,7 +194,7 @@ trial.bat query --seed 0 --coords 3145,7232 --radius 2000
 - 运行时不需要 Minecraft 服务端或存档，直接复刻官方 Jigsaw 拼接生成试炼刷怪笼坐标。
 - 试炼密室 datapack 数据（结构 NBT、模板池 JSON、结构配置）已提取进 `minecraft-26.2-runtime\src\main\resources\data\minecraft` 并随 jar 打包。
 - 运行时零 `net/minecraft` 类、零第三方库，构建只需 JDK 25 + Gradle，无需联网拉取插件/依赖（JSON 解析用自研 `cn.trialfinder.sim.json.Json`）。
-- 产物是 `minecraft-26.2-runtime\build\libs\trial-spawner-finder-2.0.0.jar`，直接 `java -jar` 即可运行。
+- 产物是 `minecraft-26.2-runtime\build\libs\trial-spawner-finder-2.0.0-beta.1.jar`，直接 `java -jar` 即可运行。
 
 `setup.ps1` 执行 `gradlew clean jar`（只编译主代码并打 fat jar，不跑测试），首次构建只下载一次 Gradle 发行版。如需重新提取 26.2 数据（例如升级版本），运行 `gradlew :minecraft-26.2-runtime:extractTrialChambersData`（需联网拉取 Minecraft 26.2 jar，或用 `-PminecraftJar=<jar路径>` 指定 jar）。
 
@@ -211,6 +214,14 @@ Minecraft 26.2 开发构建需要 JDK 25。`setup.ps1` 会从项目内 `java`、
 - `trial-spawner-finder-gui`（`cn.trialfinder.gui`）：Swing 图形界面——单种子 / 种子列表搜索、参数表单、进度与导出；依赖 runtime 的 fat jar，主类 `cn.trialfinder.gui.TrialSpawnerFinderFrame`。
 
 ## 版本记录
+
+### v2.0.0-beta.1（2026-10-18 · Minecraft 26.2）
+
+GUI 测试版：修复精细生成阶段的并行度回退，发布包同时包含 GUI 与 CLI。
+
+- **GUI 分支**：Swing 界面（单种子 / 种子列表搜索、暂停/继续、停止清空进度、结果导出）。
+- **并行度修复**：精细生成线程数恢复为 `CPU 核数 - 2`（与 v1.5.0 一致）；`scan-threads` 仅控制扫描分片阶段。
+- **自包含发布包**：`dist.zip` 内含 GUI 与 CLI 两个 fat jar、`start-gui.bat` / `trial.bat` 启动器，以及含 `java.desktop` 的 jlink 精简 JRE。
 
 ### v2.0.0（2026-08-29 · Minecraft 26.2）
 
